@@ -12,8 +12,8 @@ kotlin {
     linuxX64()
     mingwX64()
     macosX64()
-    ios()
-    js() {
+    iosX64()
+    js(IR) {
         browser()
         nodejs()
     }
@@ -22,7 +22,7 @@ kotlin {
         val jvmMain by getting {
             dependencies {
                 implementation(project(":test-processor"))
-                configurations.get("ksp").dependencies.add(project(":test-processor"))
+                project.dependencies.add("kspJvm", project(":test-processor"))
             }
             kotlin.srcDir("src/main/java")
         }

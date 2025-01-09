@@ -16,17 +16,18 @@
  */
 package com.google.devtools.ksp.gradle
 
-import com.android.build.api.dsl.AndroidSourceSet
 import com.android.build.api.dsl.CommonExtension
 import com.android.build.gradle.BaseExtension
-import com.google.devtools.ksp.gradle.KspGradleSubplugin.Companion.KSP_MAIN_CONFIGURATION_NAME
+import com.android.build.gradle.api.SourceKind
 import org.gradle.api.Project
+import org.gradle.api.Task
 import org.gradle.api.file.FileCollection
-import org.gradle.api.tasks.SourceSet
 import org.gradle.api.tasks.TaskProvider
+import org.jetbrains.kotlin.gradle.internal.KaptTask
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinJvmAndroidCompilation
+import org.jetbrains.kotlin.util.capitalizeDecapitalize.capitalizeAsciiOnly
 import java.io.File
-import java.util.Locale
+import java.util.concurrent.Callable
 
 /**
  * This helper class handles communication with the android plugin.
@@ -36,60 +37,122 @@ import java.util.Locale
  * plugin APIs directly without checking its existence (we have tests covering that case).
  */
 @Suppress("UnstableApiUsage") // some android APIs are unsable.
-class AndroidPluginIntegration(
-    private val kspGradleSubplugin: KspGradleSubplugin
-) {
+object AndroidPluginIntegration {
 
-    private val agpPluginIds = listOf("com.android.application", "com.android.library", "com.android.dynamic-feature")
-
-    fun applyIfAndroidProject(project: Project) {
-        agpPluginIds.forEach { agpPluginId ->
-            project.pluginManager.withPlugin(agpPluginId) {
-                // for android apps, we need a configuration per source set
-                decorateAndroidExtension(project)
-            }
+    fun forEachAndroidSourceSet(project: Project, onSourceSet: (String) -> Unit) {
+        project.pluginManager.withPlugin("com.android.base") {
+            // for android modules, we need a configuration per source set
+            decorateAndroidExtension(project, onSourceSet)
         }
     }
 
-    @OptIn(ExperimentalStdlibApi::class)
-    private val AndroidSourceSet.kspConfigurationName: String
-        get() {
-            return if (name == SourceSet.MAIN_SOURCE_SET_NAME) {
-                KSP_MAIN_CONFIGURATION_NAME
-            } else {
-                "$KSP_MAIN_CONFIGURATION_NAME${name.capitalize(Locale.US)}"
-            }
-        }
-
-    private fun decorateAndroidExtension(project: Project) {
+    private fun decorateAndroidExtension(project: Project, onSourceSet: (String) -> Unit) {
         val sourceSets = when (val androidExt = project.extensions.getByName("android")) {
             is BaseExtension -> androidExt.sourceSets
-            is CommonExtension<*, *, *, *, *, *, *, *> -> androidExt.sourceSets
+            is CommonExtension<*, *, *, *> -> androidExt.sourceSets
             else -> throw RuntimeException("Unsupported Android Gradle plugin version.")
         }
+        sourceSets.all {
+            onSourceSet(it.name)
+        }
+    }
 
-        @Suppress("UnstableApiUsage")
-        kspGradleSubplugin.run {
-            sourceSets.createKspConfigurations(project) { androidSourceSet ->
-                listOf(androidSourceSet.kspConfigurationName)
+    fun getCompilationSourceSets(kotlinCompilation: KotlinJvmAndroidCompilation): List<String> {
+        return kotlinCompilation.androidVariant
+            .sourceSets
+            .map { it.name }
+    }
+
+    /**
+     * Support KspTaskJvm and KspAATask tasks
+     */
+    @Suppress("DEPRECATION")
+    private fun tryUpdateKspWithAndroidSourceSets(
+        project: Project,
+        kotlinCompilation: KotlinJvmAndroidCompilation,
+        kspTaskProvider: TaskProvider<*>
+    ) {
+        val kaptProvider: TaskProvider<Task>? =
+            project.locateTask(kotlinCompilation.compileTaskProvider.kaptTaskName)
+
+        val sources = kotlinCompilation.androidVariant.getSourceFolders(SourceKind.JAVA)
+        kspTaskProvider.configure { task ->
+            // this is workaround for KAPT generator that prevents circular dependency
+            val filteredSources = Callable {
+                val destinationProperty = (kaptProvider?.get() as? KaptTask)?.destinationDir
+                val dir = destinationProperty?.get()?.asFile
+                sources.filter { dir?.isParentOf(it.dir) != true }
+            }
+            when (task) {
+                is KspTaskJvm -> {
+                    task.setSource(filteredSources)
+                    task.dependsOn(filteredSources)
+                }
+
+                is KspAATask -> {
+                    task.kspConfig.javaSourceRoots.from(filteredSources)
+                    task.dependsOn(filteredSources)
+                }
+
+                else -> Unit
             }
         }
     }
 
-    fun registerGeneratedJavaSources(
+    // same logic as in Kapt name generation method
+    private val TaskProvider<*>.kaptTaskName: String
+        get() {
+            val prefix = "kapt"
+            return if (name.startsWith("compile")) {
+                name.replaceFirst("compile", prefix)
+            } else {
+                "$prefix${name.capitalizeAsciiOnly()}"
+            }
+        }
+
+    private fun registerGeneratedSources(
         project: Project,
         kotlinCompilation: KotlinJvmAndroidCompilation,
-        kspTaskProvider: TaskProvider<KspTaskJvm>,
+        kspTaskProvider: TaskProvider<*>,
         javaOutputDir: File,
+        kotlinOutputDir: File,
         classOutputDir: File,
         resourcesOutputDir: FileCollection,
     ) {
         val kspJavaOutput = project.fileTree(javaOutputDir).builtBy(kspTaskProvider)
+        val kspKotlinOutput = project.fileTree(kotlinOutputDir).builtBy(kspTaskProvider)
         val kspClassOutput = project.fileTree(classOutputDir).builtBy(kspTaskProvider)
         kspJavaOutput.include("**/*.java")
+        kspKotlinOutput.include("**/*.kt")
         kspClassOutput.include("**/*.class")
         kotlinCompilation.androidVariant.registerExternalAptJavaOutput(kspJavaOutput)
+        kotlinCompilation.androidVariant.addJavaSourceFoldersToModel(kspKotlinOutput.dir)
         kotlinCompilation.androidVariant.registerPreJavacGeneratedBytecode(kspClassOutput)
         kotlinCompilation.androidVariant.registerPostJavacGeneratedBytecode(resourcesOutputDir)
+    }
+
+    fun syncSourceSets(
+        project: Project,
+        kotlinCompilation: KotlinJvmAndroidCompilation,
+        kspTaskProvider: TaskProvider<*>,
+        javaOutputDir: File,
+        kotlinOutputDir: File,
+        classOutputDir: File,
+        resourcesOutputDir: FileCollection
+    ) {
+        // Order is important here as we update task with AGP generated sources and
+        // then update AGP with source that KSP will generate.
+        // Mixing this up will cause circular dependency in Gradle
+        tryUpdateKspWithAndroidSourceSets(project, kotlinCompilation, kspTaskProvider)
+
+        registerGeneratedSources(
+            project,
+            kotlinCompilation,
+            kspTaskProvider,
+            javaOutputDir,
+            kotlinOutputDir,
+            classOutputDir,
+            resourcesOutputDir
+        )
     }
 }

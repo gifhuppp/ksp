@@ -15,23 +15,30 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
+import com.google.devtools.ksp.common.findParentOfType
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.impl.toLocation
 import org.jetbrains.kotlin.psi.KtFunctionType
+import org.jetbrains.kotlin.psi.KtTypeReference
 
 class KSCallableReferenceImpl private constructor(val ktFunctionType: KtFunctionType) : KSCallableReference {
     companion object : KSObjectCache<KtFunctionType, KSCallableReferenceImpl>() {
-        fun getCached(ktFunctionType: KtFunctionType) = cache.getOrPut(ktFunctionType) { KSCallableReferenceImpl(ktFunctionType) }
+        fun getCached(ktFunctionType: KtFunctionType) = cache.getOrPut(ktFunctionType) {
+            KSCallableReferenceImpl(ktFunctionType)
+        }
     }
 
     override val origin = Origin.KOTLIN
 
     override val location: Location by lazy {
         ktFunctionType.toLocation()
+    }
+
+    override val parent: KSNode? by lazy {
+        ktFunctionType.findParentOfType<KtTypeReference>()?.let { KSTypeReferenceImpl.getCached(it) }
     }
 
     override val typeArguments: List<KSTypeArgument> by lazy {
@@ -55,6 +62,7 @@ class KSCallableReferenceImpl private constructor(val ktFunctionType: KtFunction
     }
 
     override fun toString(): String {
-        return "${receiverType?.let { "$it." } ?: ""}(${functionParameters.map { it.type.toString() }.joinToString(", ")}) -> $returnType"
+        return "${receiverType?.let { "$it." } ?: ""}(${functionParameters
+            .joinToString(", ") { it.type.toString() }}) -> $returnType"
     }
 }

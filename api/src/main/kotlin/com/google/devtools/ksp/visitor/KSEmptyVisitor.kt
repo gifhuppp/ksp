@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.visitor
 
 import com.google.devtools.ksp.symbol.*
@@ -87,6 +85,10 @@ abstract class KSEmptyVisitor<D, R> : KSVisitor<D, R> {
     }
 
     override fun visitClassifierReference(reference: KSClassifierReference, data: D): R {
+        return defaultHandler(reference, data)
+    }
+
+    override fun visitDefNonNullReference(reference: KSDefNonNullReference, data: D): R {
         return defaultHandler(reference, data)
     }
 

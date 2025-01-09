@@ -23,7 +23,8 @@ import java.io.File
  */
 class TestProject(
     val rootDir: File,
-    val testConfig: TestConfig
+    val testConfig: TestConfig,
+    val useKSP2: Boolean,
 ) {
     val processorModule = TestModule(
         rootDir.resolve("processor")
@@ -36,12 +37,11 @@ class TestProject(
             )
         )
         // add gradle-plugin test classpath as a dependency to be able to load processors.
-        it.dependencies.add(
-            DependencyDeclaration.files(
-                "implementation",
-                testConfig.processorClasspath
+        testConfig.processorClasspath.split(File.pathSeparatorChar).forEach { path ->
+            it.dependencies.add(
+                DependencyDeclaration.files("implementation", path.replace(File.separatorChar, '/'))
             )
-        )
+        }
     }
 
     val appModule = TestModule(
@@ -51,8 +51,18 @@ class TestProject(
     fun writeFiles() {
         writeBuildFile()
         writeSettingsFile()
+        writeRootProperties()
         appModule.writeBuildFile()
         processorModule.writeBuildFile()
+    }
+
+    private fun writeRootProperties() {
+        val contents = """
+            
+            kotlin.jvm.target.validation.mode=warning
+            ksp.useKSP2=$useKSP2
+        """.trimIndent()
+        rootDir.resolve("gradle.properties").appendText(contents)
     }
 
     private fun writeSettingsFile() {
@@ -61,28 +71,36 @@ class TestProject(
                 include("app")
                 pluginManagement {
                     repositories {
-                        maven("${testConfig.mavenRepoDir}")
+                        maven("${testConfig.mavenRepoPath}")
                         gradlePluginPortal()
                         google()
                         maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
                     }
                 }
-            """.trimIndent()
+        """.trimIndent()
         rootDir.resolve("settings.gradle.kts").writeText(contents)
+    }
+
+    fun writeAndroidGradlePropertiesFile() {
+        val contents = """
+            android.useAndroidX=true
+            org.gradle.jvmargs=-Xmx2048M -XX:MaxMetaspaceSize=512m
+        """.trimIndent()
+        rootDir.resolve("gradle.properties").writeText(contents)
     }
 
     private fun writeBuildFile() {
         val rootBuildFile = buildString {
-            appendln("plugins {")
+            appendLine("plugins {")
             val allPlugins = (processorModule.plugins + appModule.plugins).distinct()
             allPlugins.forEach {
-                appendln("""    ${it.text} version "${it.version}" apply false """)
+                appendLine("""    ${it.text} version "${it.version}" apply false """)
             }
-            appendln("}")
-            appendln(
+            appendLine("}")
+            appendLine(
                 """
             repositories {
-                maven("${testConfig.mavenRepoDir}")
+                maven("${testConfig.mavenRepoPath}")
                 mavenCentral()
                 maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
                 google()
@@ -96,7 +114,7 @@ class TestProject(
             }
             subprojects {
                 repositories {
-                    maven("${testConfig.mavenRepoDir}")
+                    maven("${testConfig.mavenRepoPath}")
                     mavenCentral()
                     maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
                     google()
@@ -109,7 +127,7 @@ class TestProject(
                     }
                 }
             }
-            """.trimIndent()
+                """.trimIndent()
             )
         }
         rootDir.resolve("build.gradle.kts").writeText(rootBuildFile)

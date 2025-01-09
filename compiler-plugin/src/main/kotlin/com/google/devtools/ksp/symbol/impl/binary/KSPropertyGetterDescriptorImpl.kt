@@ -15,26 +15,30 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.binary
 
-import org.jetbrains.kotlin.descriptors.PropertyGetterDescriptor
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
+import org.jetbrains.kotlin.descriptors.PropertyGetterDescriptor
 
 class KSPropertyGetterDescriptorImpl private constructor(descriptor: PropertyGetterDescriptor) :
     KSPropertyAccessorDescriptorImpl(descriptor), KSPropertyGetter {
     companion object : KSObjectCache<PropertyGetterDescriptor, KSPropertyGetterDescriptorImpl>() {
-        fun getCached(descriptor: PropertyGetterDescriptor) = cache.getOrPut(descriptor) { KSPropertyGetterDescriptorImpl(descriptor) }
+        fun getCached(descriptor: PropertyGetterDescriptor) = cache.getOrPut(descriptor) {
+            KSPropertyGetterDescriptorImpl(descriptor)
+        }
     }
 
     override val returnType: KSTypeReference? by lazy {
         if (descriptor.returnType != null) {
-            KSTypeReferenceDescriptorImpl.getCached(descriptor.returnType!!, origin)
+            KSTypeReferenceDescriptorImpl.getCached(descriptor.returnType!!, origin, this)
         } else {
             null
         }
     }
+
+    override val declarations: Sequence<KSDeclaration>
+        get() = emptySequence()
 
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {
         return visitor.visitPropertyGetter(this, data)

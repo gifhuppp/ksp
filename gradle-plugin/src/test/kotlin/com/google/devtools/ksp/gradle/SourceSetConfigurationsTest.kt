@@ -30,15 +30,26 @@ import com.google.devtools.ksp.symbol.KSClassDeclaration
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
+import java.io.File
 
-class SourceSetConfigurationsTest {
+@RunWith(Parameterized::class)
+class SourceSetConfigurationsTest(val useKSP2: Boolean) {
+
+    companion object {
+        @JvmStatic
+        @Parameterized.Parameters(name = "KSP2={0}")
+        fun params() = listOf(arrayOf(true), arrayOf(false))
+    }
+
     @Rule
     @JvmField
     val tmpDir = TemporaryFolder()
 
     @Rule
     @JvmField
-    val testRule = KspIntegrationTestRule(tmpDir)
+    val testRule = KspIntegrationTestRule(tmpDir, useKSP2)
 
     @Test
     fun configurationsForJvmApp() {
@@ -47,8 +58,9 @@ class SourceSetConfigurationsTest {
         val result = testRule.runner()
             .withArguments(":app:dependencies")
             .build()
+        val configurations = result.output.lines().map { it.split(' ').first() }
 
-        assertThat(result.output.lines()).containsAtLeast("ksp", "kspTest")
+        assertThat(configurations).containsAtLeast("ksp", "kspTest")
     }
 
     @Test
@@ -58,8 +70,9 @@ class SourceSetConfigurationsTest {
         val result = testRule.runner()
             .withArguments(":app:dependencies")
             .build()
+        val configurations = result.output.lines().map { it.split(' ').first() }
 
-        assertThat(result.output.lines()).containsAtLeast(
+        assertThat(configurations).containsAtLeast(
             "ksp",
             "kspAndroidTest",
             "kspAndroidTestDebug",
@@ -73,7 +86,93 @@ class SourceSetConfigurationsTest {
     }
 
     @Test
-    fun registerJavaSourcesToAndroid() {
+    fun configurationsForMultiplatformApp() {
+        testRule.setupAppAsMultiplatformApp(
+            """
+                kotlin {
+                    jvm { }
+                    androidTarget(name = "foo") { }
+                    js(IR) { browser() }
+                    androidNativeX86 { }
+                    androidNativeX64(name = "bar") { }
+                }
+                
+            """.trimIndent()
+        )
+        testRule.appModule.addMultiplatformSource("commonMain", "Foo.kt", "class Foo")
+        val result = testRule.runner()
+            .withArguments(":app:dependencies")
+            .build()
+        val configurations = result.output.lines().map { it.split(' ').first() }
+
+        assertThat(configurations).containsAtLeast(
+            // jvm target:
+            "kspJvm",
+            "kspJvmTest",
+            // android target, named foo:
+            "kspFoo",
+            "kspFooAndroidTest",
+            "kspFooAndroidTestDebug",
+            "kspFooAndroidTestRelease",
+            "kspFooDebug",
+            "kspFooRelease",
+            "kspFooTest",
+            "kspFooTestDebug",
+            "kspFooTestRelease",
+            // js target:
+            "kspJs",
+            "kspJsTest",
+            // androidNativeX86 target:
+            "kspAndroidNativeX86",
+            "kspAndroidNativeX86Test",
+            // androidNative64 target, named bar:
+            "kspBar",
+            "kspBarTest"
+        )
+    }
+
+    @Test
+    fun configurationsForMultiplatformApp_doesNotCrossCompilationBoundaries() {
+        // Adding a ksp dependency on jvmParent should not leak into jvmChild compilation,
+        // even if the source sets depend on each other. This works because we use
+        // KotlinCompilation.kotlinSourceSets instead of KotlinCompilation.allKotlinSourceSets
+        testRule.setupAppAsMultiplatformApp(
+            """
+                kotlin {
+                    jvm("jvmParent") { }
+                    jvm("jvmChild") { }
+                }
+            """.trimIndent()
+        )
+        testRule.appModule.addMultiplatformSource("commonMain", "Foo.kt", "class Foo")
+        testRule.appModule.buildFileAdditions.add(
+            """
+                kotlin {
+                    sourceSets {
+                        this["jvmChildMain"].dependsOn(this["jvmParentMain"])
+                    }
+                }
+                dependencies {
+                    add("kspJvmParent", "androidx.room:room-compiler:2.4.2")
+                }
+                tasks.register("checkConfigurations") {
+                    doLast {
+                        // child has no dependencies, so task is not created.
+                        val parent = tasks.findByName("kspKotlinJvmParent")
+                        val child = tasks.findByName("kspKotlinJvmChild")
+                        require(parent != null)
+                        require(child == null)
+                    }
+                }
+            """.trimIndent()
+        )
+        testRule.runner()
+            .withArguments(":app:checkConfigurations")
+            .build()
+    }
+
+    @Test
+    fun registerGeneratedSourcesToAndroid() {
         testRule.setupAppAsAndroidApp()
         testRule.appModule.dependencies.addAll(
             listOf(
@@ -91,11 +190,11 @@ class SourceSetConfigurationsTest {
                         val baseVariant = (this as com.android.build.gradle.internal.api.BaseVariantImpl)
                         val variantData = baseVariant::class.java.getMethod("getVariantData").invoke(baseVariant)
                             as com.android.build.gradle.internal.variant.BaseVariantData
-                        variantData.extraGeneratedSourceFolders.forEach {
-                            println("SRC:" + it.relativeTo(buildDir).path)
+                        variantData.extraGeneratedSourceFoldersOnlyInModel.forEach {
+                            println("SRC:" + it.relativeTo(layout.buildDirectory.get().asFile).path)
                         }
                         variantData.allPreJavacGeneratedBytecode.forEach {
-                            println("BYTE:" + it.relativeTo(buildDir).path)
+                            println("BYTE:" + it.relativeTo(layout.buildDirectory.get().asFile).path)
                         }
                     }
                 }
@@ -107,12 +206,14 @@ class SourceSetConfigurationsTest {
             }
             """.trimIndent()
         )
-        val result = testRule.runner().withDebug(true).withArguments(":app:printSources").build()
+        val result = testRule.runner().withArguments(":app:printSources").build()
 
         data class SourceFolder(
             val variantName: String,
             val path: String
         )
+
+        fun String.normalizePath() = replace(File.separatorChar, '/')
         // parse output to get variant names and sources
         // variant name -> list of sources
         val variantSources = mutableListOf<SourceFolder>()
@@ -126,7 +227,7 @@ class SourceSetConfigurationsTest {
                     variantSources.add(
                         SourceFolder(
                             variantName = currentVariantName,
-                            path = line
+                            path = line.normalizePath()
                         )
                     )
                 }
@@ -135,7 +236,7 @@ class SourceSetConfigurationsTest {
                     variantSources.add(
                         SourceFolder(
                             variantName = currentVariantName,
-                            path = line
+                            path = line.normalizePath()
                         )
                     )
                 }
@@ -148,19 +249,19 @@ class SourceSetConfigurationsTest {
             }
         ).containsExactly(
             SourceFolder(
-                "debug", "SRC:generated/ksp/debug/java"
+                "debug", "SRC:generated/ksp/debug/kotlin"
             ),
             SourceFolder(
-                "release", "SRC:generated/ksp/release/java"
+                "release", "SRC:generated/ksp/release/kotlin"
             ),
             SourceFolder(
-                "debugAndroidTest", "SRC:generated/ksp/debugAndroidTest/java"
+                "debugAndroidTest", "SRC:generated/ksp/debugAndroidTest/kotlin"
             ),
             SourceFolder(
-                "debugUnitTest", "SRC:generated/ksp/debugUnitTest/java"
+                "debugUnitTest", "SRC:generated/ksp/debugUnitTest/kotlin"
             ),
             SourceFolder(
-                "releaseUnitTest", "SRC:generated/ksp/releaseUnitTest/java"
+                "releaseUnitTest", "SRC:generated/ksp/releaseUnitTest/kotlin"
             ),
             // TODO byte sources seems to be overridden by tmp/kotlin-classes/debug
             //  assert them as well once fixed
@@ -170,7 +271,8 @@ class SourceSetConfigurationsTest {
     @Test
     fun configurationsForAndroidApp_withBuildFlavorsMatchesKapt() {
         testRule.setupAppAsAndroidApp()
-        testRule.appModule.buildFileAdditions.add("""
+        testRule.appModule.buildFileAdditions.add(
+            """
             android {
                 flavorDimensions("version")
                 productFlavors {
@@ -184,7 +286,8 @@ class SourceSetConfigurationsTest {
                     }
                 }
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         testRule.appModule.plugins.add(PluginDeclaration.kotlin("kapt", testRule.testConfig.kotlinBaseVersion))
         testRule.appModule.addSource("Foo.kt", "class Foo")
         val result = testRule.runner()
@@ -192,10 +295,11 @@ class SourceSetConfigurationsTest {
             .build()
 
         // kaptClasspath_* seem to be intermediate configurations that never run.
-        val kaptConfigurations = result.output.lines().filter {
+        val configurations = result.output.lines().map { it.split(' ').first() }
+        val kaptConfigurations = configurations.filter {
             it.startsWith("kapt") && !it.startsWith("kaptClasspath_")
         }
-        val kspConfigurations = result.output.lines().filter {
+        val kspConfigurations = configurations.filter {
             it.startsWith("ksp")
         }
         assertThat(kspConfigurations).containsExactlyElementsIn(
@@ -221,7 +325,7 @@ class SourceSetConfigurationsTest {
         kspForTests(androidApp = true, useAndroidTest = false)
     }
 
-    private fun kspForTests(androidApp:Boolean, useAndroidTest: Boolean) {
+    private fun kspForTests(androidApp: Boolean, useAndroidTest: Boolean) {
         if (androidApp) {
             testRule.setupAppAsAndroidApp()
         } else {
@@ -233,17 +337,20 @@ class SourceSetConfigurationsTest {
             }
         }
 
-        testRule.appModule.addSource("App.kt", """
+        testRule.appModule.addSource(
+            "App.kt",
+            """
             @Suppress("app")
             class InApp {
             }
-        """.trimIndent())
+            """.trimIndent()
+        )
         val testSource = """
                 @Suppress("test")
                 class InTest {
                     val impl = InTest_Impl()
                 }
-                """.trimIndent()
+        """.trimIndent()
         if (useAndroidTest) {
             testRule.appModule.addAndroidTestSource("InTest.kt", testSource)
         } else {

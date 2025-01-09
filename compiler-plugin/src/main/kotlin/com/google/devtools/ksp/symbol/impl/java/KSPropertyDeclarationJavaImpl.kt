@@ -15,18 +15,22 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.common.toKSModifiers
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
-import com.intellij.psi.PsiField
-import com.intellij.psi.PsiJavaFile
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.*
 import com.google.devtools.ksp.symbol.impl.kotlin.KSExpectActualNoImpl
-import com.google.devtools.ksp.symbol.impl.kotlin.KSNameImpl
+import com.intellij.psi.PsiField
+import com.intellij.psi.PsiJavaFile
 
-class KSPropertyDeclarationJavaImpl private constructor(val psi: PsiField) : KSPropertyDeclaration, KSDeclarationJavaImpl(psi),
+class KSPropertyDeclarationJavaImpl private constructor(val psi: PsiField) :
+    KSPropertyDeclaration,
+    KSDeclarationJavaImpl(psi),
     KSExpectActual by KSExpectActualNoImpl() {
     companion object : KSObjectCache<PsiField, KSPropertyDeclarationJavaImpl>() {
         fun getCached(psi: PsiField) = cache.getOrPut(psi) { KSPropertyDeclarationJavaImpl(psi) }
@@ -38,7 +42,8 @@ class KSPropertyDeclarationJavaImpl private constructor(val psi: PsiField) : KSP
         psi.toLocation()
     }
 
-    override val isMutable: Boolean = true
+    override val isMutable: Boolean
+        get() = !modifiers.contains(Modifier.FINAL)
 
     override val hasBackingField: Boolean
         get() = true
@@ -76,7 +81,7 @@ class KSPropertyDeclarationJavaImpl private constructor(val psi: PsiField) : KSP
     override val typeParameters: List<KSTypeParameter> = emptyList()
 
     override val type: KSTypeReference by lazy {
-        KSTypeReferenceJavaImpl.getCached(psi.type)
+        KSTypeReferenceJavaImpl.getCached(psi.type, this)
     }
 
     override fun findOverridee(): KSPropertyDeclaration? {
@@ -92,5 +97,5 @@ class KSPropertyDeclarationJavaImpl private constructor(val psi: PsiField) : KSP
     }
 
     override fun asMemberOf(containing: KSType): KSType =
-        ResolverImpl.instance.asMemberOf(this, containing)
+        ResolverImpl.instance!!.asMemberOf(this, containing)
 }

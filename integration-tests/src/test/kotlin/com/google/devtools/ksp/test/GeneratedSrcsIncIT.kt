@@ -4,12 +4,15 @@ import org.gradle.testkit.runner.GradleRunner
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
 import java.io.File
 
-class GeneratedSrcsIncIT {
+@RunWith(Parameterized::class)
+class GeneratedSrcsIncIT(useKSP2: Boolean) {
     @Rule
     @JvmField
-    val project: TemporaryTestProject = TemporaryTestProject("srcs-gen", "test-processor")
+    val project: TemporaryTestProject = TemporaryTestProject("srcs-gen", "test-processor", useKSP2)
 
     @Test
     fun testGeneratedSrcsInc() {
@@ -22,13 +25,19 @@ class GeneratedSrcsIncIT {
         )
 
         gradleRunner.withArguments("assemble").build().let { result ->
-            val outputs = result.output.split("\n").filter { it.startsWith("w: [ksp]")}
+            val outputs = result.output.lines().filter { it.startsWith("w: [ksp]") }
             Assert.assertEquals(expected, outputs)
         }
-        File(project.root, "workload/src/main/kotlin/com/example/Baz.kt").appendText("\n\n")
+        File(project.root, "workload/src/main/kotlin/com/example/Baz.kt").appendText(System.lineSeparator())
         gradleRunner.withArguments("assemble").build().let { result ->
-            val outputs = result.output.split("\n").filter { it.startsWith("w: [ksp]")}
+            val outputs = result.output.lines().filter { it.startsWith("w: [ksp]") }
             Assert.assertEquals(expected, outputs)
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @Parameterized.Parameters(name = "KSP2={0}")
+        fun params() = listOf(arrayOf(true), arrayOf(false))
     }
 }

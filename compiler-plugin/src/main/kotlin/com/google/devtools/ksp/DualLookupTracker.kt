@@ -22,7 +22,7 @@ import org.jetbrains.kotlin.incremental.components.LookupTracker
 import org.jetbrains.kotlin.incremental.components.Position
 import org.jetbrains.kotlin.incremental.components.ScopeKind
 
-internal class DualLookupTracker : LookupTracker {
+class DualLookupTracker : LookupTracker {
     val symbolTracker = LookupTrackerImpl(LookupTracker.DO_NOTHING)
     val classTracker = LookupTrackerImpl(LookupTracker.DO_NOTHING)
 
@@ -37,5 +37,10 @@ internal class DualLookupTracker : LookupTracker {
             // DO NOT USE: ScopeKind is meaningless
             classTracker.record(filePath, position, outerScope, scopeKind, className)
         }
+    }
+
+    override fun clear() {
+        // Do not clear symbolTracker and classTracker.
+        // LookupTracker.clear() is called in repeatAnalysisIfNeeded, but we need records across all rounds.
     }
 }

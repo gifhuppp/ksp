@@ -15,18 +15,14 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.binary
 
-import org.jetbrains.kotlin.descriptors.PropertyAccessorDescriptor
+import com.google.devtools.ksp.common.memoized
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.memoized
 import com.google.devtools.ksp.symbol.impl.toFunctionKSModifiers
 import com.google.devtools.ksp.symbol.impl.toKSModifiers
 import com.google.devtools.ksp.symbol.impl.toKSPropertyDeclaration
-import org.jetbrains.kotlin.load.java.descriptors.JavaClassDescriptor
-import org.jetbrains.kotlin.resolve.descriptorUtil.parentsWithSelf
-import org.jetbrains.kotlin.utils.addToStdlib.firstIsInstanceOrNull
+import org.jetbrains.kotlin.descriptors.PropertyAccessorDescriptor
 
 abstract class KSPropertyAccessorDescriptorImpl(val descriptor: PropertyAccessorDescriptor) : KSPropertyAccessor {
     override val origin: Origin by lazy {
@@ -42,6 +38,10 @@ abstract class KSPropertyAccessorDescriptorImpl(val descriptor: PropertyAccessor
         descriptor.correspondingProperty.toKSPropertyDeclaration()
     }
 
+    override val parent: KSNode? by lazy {
+        receiver
+    }
+
     override val location: Location
         get() {
             // if receiver is kotlin source, that means `this` is synthetic hence we want the property's location
@@ -50,7 +50,7 @@ abstract class KSPropertyAccessorDescriptorImpl(val descriptor: PropertyAccessor
         }
 
     override val annotations: Sequence<KSAnnotation> by lazy {
-        descriptor.annotations.asSequence().map { KSAnnotationDescriptorImpl.getCached(it) }.memoized()
+        descriptor.annotations.asSequence().map { KSAnnotationDescriptorImpl.getCached(it, this) }.memoized()
     }
 
     override val modifiers: Set<Modifier> by lazy {

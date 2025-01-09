@@ -15,35 +15,30 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.binary
 
 import com.google.devtools.ksp.ExceptionMessage
-import org.jetbrains.kotlin.descriptors.FunctionDescriptor
-import org.jetbrains.kotlin.descriptors.impl.AnonymousFunctionDescriptor
-import com.google.devtools.ksp.isOpen
-import com.google.devtools.ksp.isVisibleFrom
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
-import com.google.devtools.ksp.symbol.impl.findClosestOverridee
-import com.google.devtools.ksp.symbol.impl.toFunctionKSModifiers
-import com.google.devtools.ksp.symbol.impl.toKSDeclaration
-import com.google.devtools.ksp.symbol.impl.toKSModifiers
-import org.jetbrains.kotlin.descriptors.ClassConstructorDescriptor
+import com.google.devtools.ksp.symbol.impl.*
+import org.jetbrains.kotlin.descriptors.FunctionDescriptor
+import org.jetbrains.kotlin.descriptors.impl.AnonymousFunctionDescriptor
 import org.jetbrains.kotlin.load.java.isFromJava
-import org.jetbrains.kotlin.resolve.OverridingUtil
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
+import org.jetbrains.org.objectweb.asm.Opcodes
 
-class KSFunctionDeclarationDescriptorImpl private constructor(val descriptor: FunctionDescriptor) : KSFunctionDeclaration,
+class KSFunctionDeclarationDescriptorImpl private constructor(val descriptor: FunctionDescriptor) :
+    KSFunctionDeclaration,
     KSDeclarationDescriptorImpl(descriptor),
     KSExpectActual by KSExpectActualDescriptorImpl(descriptor) {
     companion object : KSObjectCache<FunctionDescriptor, KSFunctionDeclarationDescriptorImpl>() {
-        fun getCached(descriptor: FunctionDescriptor) = cache.getOrPut(descriptor) { KSFunctionDeclarationDescriptorImpl(descriptor) }
+        fun getCached(descriptor: FunctionDescriptor) =
+            cache.getOrPut(descriptor) { KSFunctionDeclarationDescriptorImpl(descriptor) }
     }
 
     override fun findOverridee(): KSDeclaration? {
-        return descriptor?.findClosestOverridee()?.toKSDeclaration()
+        return descriptor.findClosestOverridee()?.toKSDeclaration()
     }
 
     override val typeParameters: List<KSTypeParameter> by lazy {
@@ -55,7 +50,7 @@ class KSFunctionDeclarationDescriptorImpl private constructor(val descriptor: Fu
     override val extensionReceiver: KSTypeReference? by lazy {
         val extensionReceiver = descriptor.extensionReceiverParameter?.type
         if (extensionReceiver != null) {
-            KSTypeReferenceDescriptorImpl.getCached(extensionReceiver, origin)
+            KSTypeReferenceDescriptorImpl.getCached(extensionReceiver, origin, this)
         } else {
             null
         }
@@ -70,7 +65,9 @@ class KSFunctionDeclarationDescriptorImpl private constructor(val descriptor: Fu
             }
             !descriptor.name.isSpecial && !descriptor.name.asString().isEmpty() -> FunctionKind.MEMBER
             descriptor is AnonymousFunctionDescriptor -> FunctionKind.ANONYMOUS
-            else -> throw IllegalStateException("Unable to resolve FunctionKind for ${descriptor.fqNameSafe}, $ExceptionMessage")
+            else -> throw IllegalStateException(
+                "Unable to resolve FunctionKind for ${descriptor.fqNameSafe}, $ExceptionMessage"
+            )
         }
     }
 
@@ -82,11 +79,19 @@ class KSFunctionDeclarationDescriptorImpl private constructor(val descriptor: Fu
         val modifiers = mutableSetOf<Modifier>()
         modifiers.addAll(descriptor.toKSModifiers())
         modifiers.addAll(descriptor.toFunctionKSModifiers())
+
+        if (this.origin == Origin.JAVA_LIB) {
+            if (this.jvmAccessFlag and Opcodes.ACC_STRICT != 0)
+                modifiers.add(Modifier.JAVA_STRICT)
+            if (this.jvmAccessFlag and Opcodes.ACC_SYNCHRONIZED != 0)
+                modifiers.add(Modifier.JAVA_SYNCHRONIZED)
+        }
+
         modifiers
     }
 
     override val parameters: List<KSValueParameter> by lazy {
-        descriptor.valueParameters.map { KSValueParameterDescriptorImpl.getCached(it) }
+        descriptor.valueParameters.map { KSValueParameterDescriptorImpl.getCached(it, this) }
     }
 
     override val returnType: KSTypeReference? by lazy {
@@ -94,7 +99,7 @@ class KSFunctionDeclarationDescriptorImpl private constructor(val descriptor: Fu
         if (returnType == null) {
             null
         } else {
-            KSTypeReferenceDescriptorImpl.getCached(returnType, origin)
+            KSTypeReferenceDescriptorImpl.getCached(returnType, origin, this)
         }
     }
 
@@ -103,5 +108,5 @@ class KSFunctionDeclarationDescriptorImpl private constructor(val descriptor: Fu
     }
 
     override fun asMemberOf(containing: KSType): KSFunction =
-        ResolverImpl.instance.asMemberOf(this, containing)
+        ResolverImpl.instance!!.asMemberOf(this, containing)
 }

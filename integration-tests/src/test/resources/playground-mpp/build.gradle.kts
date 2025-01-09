@@ -3,12 +3,10 @@ plugins {
 }
 
 val testRepo: String by project
-subprojects {
+allprojects {
     repositories {
         maven(testRepo)
         mavenCentral()
         maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
-        google()
     }
 }
-

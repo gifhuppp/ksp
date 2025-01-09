@@ -15,23 +15,27 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.binary
 
-import org.jetbrains.kotlin.descriptors.PropertySetterDescriptor
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
+import org.jetbrains.kotlin.descriptors.PropertySetterDescriptor
 
 class KSPropertySetterDescriptorImpl private constructor(descriptor: PropertySetterDescriptor) :
     KSPropertyAccessorDescriptorImpl(descriptor), KSPropertySetter {
     companion object : KSObjectCache<PropertySetterDescriptor, KSPropertySetterDescriptorImpl>() {
-        fun getCached(descriptor: PropertySetterDescriptor) = cache.getOrPut(descriptor) { KSPropertySetterDescriptorImpl(descriptor) }
+        fun getCached(descriptor: PropertySetterDescriptor) = cache.getOrPut(descriptor) {
+            KSPropertySetterDescriptorImpl(descriptor)
+        }
     }
 
     override val parameter: KSValueParameter by lazy {
-        descriptor.valueParameters.singleOrNull()?.let { KSValueParameterDescriptorImpl.getCached(it) }
-                ?: throw IllegalStateException("Failed to resolve property type")
+        descriptor.valueParameters.singleOrNull()?.let { KSValueParameterDescriptorImpl.getCached(it, this) }
+            ?: throw IllegalStateException("Failed to resolve property type")
     }
+
+    override val declarations: Sequence<KSDeclaration>
+        get() = emptySequence()
 
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {
         return visitor.visitPropertySetter(this, data)

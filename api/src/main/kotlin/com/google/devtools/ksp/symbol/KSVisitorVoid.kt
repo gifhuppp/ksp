@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.symbol
 
 /**
@@ -92,5 +90,8 @@ open class KSVisitorVoid : KSVisitor<Unit, Unit> {
     }
 
     override fun visitValueArgument(valueArgument: KSValueArgument, data: Unit) {
+    }
+
+    override fun visitDefNonNullReference(reference: KSDefNonNullReference, data: Unit) {
     }
 }

@@ -15,23 +15,61 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
-import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptor
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.impl.binary.createKSValueArguments
+import com.google.devtools.ksp.symbol.impl.binary.getDefaultArguments
 import com.google.devtools.ksp.symbol.impl.toLocation
+import org.jetbrains.kotlin.descriptors.annotations.AnnotationDescriptor
+import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.*
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
+import org.jetbrains.kotlin.psi.KtClassOrObject
+import org.jetbrains.kotlin.psi.KtFile
+import org.jetbrains.kotlin.psi.KtFunction
+import org.jetbrains.kotlin.psi.KtParameter
+import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.psi.KtPropertyAccessor
+import org.jetbrains.kotlin.psi.KtTypeAlias
+import org.jetbrains.kotlin.psi.KtTypeParameter
+import org.jetbrains.kotlin.psi.KtTypeProjection
+import org.jetbrains.kotlin.psi.KtTypeReference
 
 class KSAnnotationImpl private constructor(val ktAnnotationEntry: KtAnnotationEntry) : KSAnnotation {
     companion object : KSObjectCache<KtAnnotationEntry, KSAnnotationImpl>() {
-        fun getCached(ktAnnotationEntry: KtAnnotationEntry) = cache.getOrPut(ktAnnotationEntry) { KSAnnotationImpl(ktAnnotationEntry) }
+        fun getCached(ktAnnotationEntry: KtAnnotationEntry) = cache.getOrPut(ktAnnotationEntry) {
+            KSAnnotationImpl(ktAnnotationEntry)
+        }
     }
 
     override val origin = Origin.KOTLIN
+
+    override val parent: KSNode? by lazy {
+        var parentPsi = ktAnnotationEntry.parent
+        while (true) {
+            when (parentPsi) {
+                null, is KtFile, is KtClassOrObject, is KtFunction, is KtParameter, is KtTypeParameter,
+                is KtTypeAlias, is KtProperty, is KtPropertyAccessor, is KtTypeProjection, is KtTypeReference -> break
+                else -> parentPsi = parentPsi.parent
+            }
+        }
+        when (parentPsi) {
+            is KtFile -> KSFileImpl.getCached(parentPsi)
+            is KtClassOrObject -> KSClassDeclarationImpl.getCached(parentPsi)
+            is KtFunction -> KSFunctionDeclarationImpl.getCached(parentPsi)
+            is KtParameter -> KSValueParameterImpl.getCached(parentPsi)
+            is KtTypeParameter -> KSTypeParameterImpl.getCached(parentPsi)
+            is KtTypeAlias -> KSTypeAliasImpl.getCached(parentPsi)
+            is KtProperty -> KSPropertyDeclarationImpl.getCached(parentPsi)
+            is KtPropertyAccessor -> KSPropertyAccessorImpl.getCached(parentPsi)
+            is KtTypeProjection -> KSTypeArgumentKtImpl.getCached(parentPsi)
+            is KtTypeReference -> KSTypeReferenceImpl.getCached(parentPsi)
+            else -> null
+        }
+    }
 
     override val location: Location by lazy {
         ktAnnotationEntry.toLocation()
@@ -42,7 +80,11 @@ class KSAnnotationImpl private constructor(val ktAnnotationEntry: KtAnnotationEn
     }
 
     override val arguments: List<KSValueArgument> by lazy {
-        resolved?.createKSValueArguments() ?: emptyList()
+        resolved?.createKSValueArguments(this) ?: emptyList()
+    }
+
+    override val defaultArguments: List<KSValueArgument> by lazy {
+        resolved?.getDefaultArguments(this) ?: emptyList()
     }
 
     override val shortName: KSName by lazy {
@@ -52,15 +94,15 @@ class KSAnnotationImpl private constructor(val ktAnnotationEntry: KtAnnotationEn
     override val useSiteTarget: AnnotationUseSiteTarget? by lazy {
         when (ktAnnotationEntry.useSiteTarget?.getAnnotationUseSiteTarget()) {
             null -> null
-            org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.FILE -> AnnotationUseSiteTarget.FILE
-            org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.PROPERTY -> AnnotationUseSiteTarget.PROPERTY
-            org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.FIELD -> AnnotationUseSiteTarget.FIELD
-            org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.PROPERTY_GETTER -> AnnotationUseSiteTarget.GET
-            org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.PROPERTY_SETTER -> AnnotationUseSiteTarget.SET
-            org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.RECEIVER -> AnnotationUseSiteTarget.RECEIVER
-            org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.CONSTRUCTOR_PARAMETER -> AnnotationUseSiteTarget.PARAM
-            org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.SETTER_PARAMETER -> AnnotationUseSiteTarget.SETPARAM
-            org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget.PROPERTY_DELEGATE_FIELD -> AnnotationUseSiteTarget.DELEGATE
+            FILE -> AnnotationUseSiteTarget.FILE
+            PROPERTY -> AnnotationUseSiteTarget.PROPERTY
+            FIELD -> AnnotationUseSiteTarget.FIELD
+            PROPERTY_GETTER -> AnnotationUseSiteTarget.GET
+            PROPERTY_SETTER -> AnnotationUseSiteTarget.SET
+            RECEIVER -> AnnotationUseSiteTarget.RECEIVER
+            CONSTRUCTOR_PARAMETER -> AnnotationUseSiteTarget.PARAM
+            SETTER_PARAMETER -> AnnotationUseSiteTarget.SETPARAM
+            PROPERTY_DELEGATE_FIELD -> AnnotationUseSiteTarget.DELEGATE
         }
     }
 
@@ -69,7 +111,7 @@ class KSAnnotationImpl private constructor(val ktAnnotationEntry: KtAnnotationEn
     }
 
     private val resolved: AnnotationDescriptor? by lazy {
-        ResolverImpl.instance.resolveAnnotationEntry(ktAnnotationEntry)
+        ResolverImpl.instance!!.resolveAnnotationEntry(ktAnnotationEntry)
     }
 
     override fun toString(): String {

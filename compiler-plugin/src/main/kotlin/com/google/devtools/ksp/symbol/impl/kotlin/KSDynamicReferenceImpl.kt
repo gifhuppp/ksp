@@ -15,16 +15,14 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
-import org.jetbrains.kotlin.psi.KtUserType
 
-class KSDynamicReferenceImpl private constructor() : KSDynamicReference {
-    companion object : KSObjectCache<Unit, KSDynamicReferenceImpl>() {
-        fun getCached(unused: Unit) = cache.getOrPut(unused) { KSDynamicReferenceImpl() }
+class KSDynamicReferenceImpl private constructor(override val parent: KSNode?) : KSDynamicReference {
+    companion object : KSObjectCache<KSTypeReference, KSDynamicReferenceImpl>() {
+        fun getCached(parent: KSTypeReference) = cache.getOrPut(parent) { KSDynamicReferenceImpl(parent) }
     }
 
     override val origin = Origin.KOTLIN

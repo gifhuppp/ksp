@@ -15,16 +15,15 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.binary
 
-import org.jetbrains.kotlin.backend.common.serialization.findPackage
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.symbol.*
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.descriptors.DeclarationDescriptor
 import org.jetbrains.kotlin.descriptors.FunctionDescriptor
-import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.kotlin.KSNameImpl
-import com.google.devtools.ksp.symbol.impl.memoized
+import org.jetbrains.kotlin.descriptors.findPackage
 import org.jetbrains.kotlin.load.java.descriptors.JavaClassDescriptor
 import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.resolve.descriptorUtil.parents
@@ -42,7 +41,7 @@ abstract class KSDeclarationDescriptorImpl(private val descriptor: DeclarationDe
     override val location: Location = NonExistLocation
 
     override val annotations: Sequence<KSAnnotation> by lazy {
-        descriptor.annotations.asSequence().map { KSAnnotationDescriptorImpl.getCached(it) }.memoized()
+        descriptor.annotations.asSequence().map { KSAnnotationDescriptorImpl.getCached(it, this) }.memoized()
     }
 
     override val parentDeclaration: KSDeclaration? by lazy {
@@ -51,7 +50,11 @@ abstract class KSDeclarationDescriptorImpl(private val descriptor: DeclarationDe
             is ClassDescriptor -> KSClassDeclarationDescriptorImpl.getCached(containingDescriptor)
             is FunctionDescriptor -> KSFunctionDeclarationDescriptorImpl.getCached(containingDescriptor)
             else -> null
-        } as KSDeclaration?
+        }
+    }
+
+    override val parent: KSNode? by lazy {
+        parentDeclaration
     }
 
     override val packageName: KSName by lazy {

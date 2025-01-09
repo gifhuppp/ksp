@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.symbol
 
 /**
@@ -31,7 +29,7 @@ enum class Modifier {
     OVERRIDE, LATEINIT,
     ENUM, SEALED, ANNOTATION, DATA, INNER, FUN, VALUE,
     SUSPEND, TAILREC, OPERATOR, INFIX, INLINE, EXTERNAL,
-    ABSTRACT, FINAL, OPEN,
+    ABSTRACT, FINAL, OPEN, CONST,
     VARARG, NOINLINE, CROSSINLINE,
     REIFIED,
     EXPECT, ACTUAL,

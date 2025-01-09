@@ -12,7 +12,6 @@ repositories {
     maven(testRepo)
     mavenCentral()
     maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
-    google()
 }
 
 dependencies {
@@ -24,4 +23,3 @@ dependencies {
 sourceSets.main {
     java.srcDirs("src/main/kotlin")
 }
-

@@ -9,12 +9,17 @@ pluginManagement {
     repositories {
         maven(testRepo)
         gradlePluginPortal()
-        google()
         maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
     }
 }
 
 rootProject.name = "playground"
 
+include(":annotations")
 include(":workload")
+include(":workload-jvm")
+include(":workload-js")
+include(":workload-wasm")
+include(":workload-linuxX64")
+include(":workload-androidNative")
 include(":test-processor")

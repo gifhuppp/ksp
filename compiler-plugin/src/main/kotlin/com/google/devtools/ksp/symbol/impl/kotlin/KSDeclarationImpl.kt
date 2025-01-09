@@ -15,18 +15,16 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.isConstructor
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.findParentDeclaration
-import com.google.devtools.ksp.symbol.impl.memoized
-import com.google.devtools.ksp.symbol.impl.getDocString
-import com.google.devtools.ksp.symbol.impl.toKSModifiers
-import com.google.devtools.ksp.symbol.impl.toLocation
+import com.google.devtools.ksp.symbol.impl.*
 import org.jetbrains.kotlin.psi.*
 
-abstract class KSDeclarationImpl(ktDeclaration: KtDeclaration) : KSDeclaration {
+abstract class KSDeclarationImpl(val ktDeclaration: KtDeclaration) : KSDeclaration {
     override val origin: Origin = Origin.KOTLIN
 
     override val location: Location by lazy {
@@ -49,8 +47,15 @@ abstract class KSDeclarationImpl(ktDeclaration: KtDeclaration) : KSDeclaration {
         // we do not check for JVM_STATIC here intentionally as it actually means static in parent class,
         // not in this class.
         // see: https://github.com/google/ksp/issues/378
-        ktDeclaration.toKSModifiers()
+        if (this is KSFunctionDeclaration && this.isConstructor() &&
+            (this.parentDeclaration as? KSClassDeclaration)?.classKind == ClassKind.ENUM_CLASS
+        ) {
+            setOf(Modifier.FINAL, Modifier.PRIVATE)
+        } else {
+            ktDeclaration.toKSModifiers()
+        }
     }
+
     override val containingFile: KSFile? by lazy {
         KSFileImpl.getCached(ktDeclaration.containingKtFile)
     }
@@ -61,12 +66,16 @@ abstract class KSDeclarationImpl(ktDeclaration: KtDeclaration) : KSDeclaration {
 
     override val typeParameters: List<KSTypeParameter> by lazy {
         (ktDeclaration as? KtTypeParameterListOwner)?.let {
-            it.typeParameters.map { KSTypeParameterImpl.getCached(it, ktDeclaration) }
+            it.typeParameters.map { KSTypeParameterImpl.getCached(it) }
         } ?: emptyList()
     }
 
     override val parentDeclaration: KSDeclaration? by lazy {
         ktDeclaration.findParentDeclaration()
+    }
+
+    override val parent: KSNode? by lazy {
+        ktDeclaration.findParentAnnotated()
     }
 
     override fun toString(): String {

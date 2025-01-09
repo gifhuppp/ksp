@@ -4,45 +4,42 @@ name: CI
 
 on:
   push:
-    branches: [ main, kotlin-1.5.21 ]
+    branches: [ main, '[0-9]+.[0-9]+.[0-9]+-release*' ]
   pull_request:
-    branches: [ main, kotlin-1.5.21 ]
+    branches: [ main, '[0-9]+.[0-9]+.[0-9]+-release*' ]
+  workflow_dispatch:
+    branches: [ main, '[0-9]+.[0-9]+.[0-9]+-release*' ]
 
 jobs:
   build-and-test:
     strategy:
       fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+        is_pull_request:
+          - ${{ github.event_name == 'pull_request' }}
+        exclude:
+          # Don't run slow targets on pull request.
+          - is_pull_request: true
+            os: macos-latest
 
     # The type of runner that the job will run on
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     steps:
-    - name: Setup Java 9
+    - name: configure Pagefile
+      if: matrix.os == 'windows-latest'
+      uses: al-cheb/configure-pagefile-action@v1.2
+      with:
+        minimum-size: 8
+        maximum-size: 16
+        disk-root: "D:"
+    - name: Setup Java 17
       uses: actions/setup-java@v1.4.3
       with:
-        java-version: '9'
+        java-version: '17'
         java-package: jdk
         architecture: x64
-    - name: set JDK_9 environment variable for kotlin compiler
-      env:
-        ACTIONS_ALLOW_UNSECURE_COMMANDS: true
-      run: echo ::set-env name=JDK_9::$(echo $JAVA_HOME)
-    - name: Setup Java 11
-      uses: actions/setup-java@v1.4.3
-      with:
-        java-version: '11'
-        java-package: jdk
-        architecture: x64
-    - name: Setup Java 8
-      uses: actions/setup-java@v1.4.3
-      with:
-        java-version: '8'
-        java-package: jdk
-        architecture: x64
-    - name: set JDK 6,7,8 environment variables for kotlin compiler
-      env:
-        ACTIONS_ALLOW_UNSECURE_COMMANDS: true
-      run: echo ::set-env name=JDK_16::$(echo $JAVA_HOME) && echo ::set-env name=JDK_17::$(echo $JAVA_HOME) && echo ::set-env name=JDK_18::$(echo $JAVA_HOME)
 
     # Checkout
     - uses: actions/checkout@v2
@@ -61,30 +58,28 @@ jobs:
       with:
         path: ~/.gradle/wrapper
         key: ${{ runner.os }}-gradle-wrapper-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
-    # Run ksp generated tests
+    # Run ktlint
+    - name: lint
+      if: matrix.os == 'ubuntu-latest'
+      run: ./gradlew ktlint
+
+    # Check API compatibility
+    - name: API compatibility check
+      if: matrix.os == 'ubuntu-latest'
+      run: ./gradlew :api:checkApi
+
+    # Run tests
     - name: test
-      run: ./gradlew --stacktrace --info :compiler-plugin:test --tests "com.google.devtools.ksp.test.KotlinKSPTestGenerated.*" -PcompilerTestEnabled=true
+      shell: bash
+      run: ./gradlew --stacktrace --info test
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
-        name: test-reports
-        path: compiler-plugin/build/reports
-    # Run ksp integration tests
-    - name: integration tests
-      run: ./gradlew --stacktrace --info :integration-tests:test
-    - name: Upload integration test results
-      if: always()
-      uses: actions/upload-artifact@v2
-      with:
-        name: integration-tests-reports
-        path: integration-tests/build/reports
-    # Run gradle plugin tests
-    - name: gradle plugin tests
-      run: ./gradlew --stacktrace --info :gradle-plugin:test
-    - name: Upload gradle plugin test results
-      if: always()
-      uses: actions/upload-artifact@v2
-      with:
-        name: gradle-plugin-test-reports
-        path: gradle-plugin/build/reports
+        name: test-reports-${{ matrix.branch }}-${{ matrix.os }}
+        path: |
+          compiler-plugin/build/reports
+          integration-tests/build/reports
+          gradle-plugin/build/reports
+          common-util/build/reports
+          kotlin-analysis-api/build/reports

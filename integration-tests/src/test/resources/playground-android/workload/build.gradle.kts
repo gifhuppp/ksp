@@ -13,8 +13,6 @@ repositories {
     maven(testRepo)
     mavenCentral()
     maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
-    google()
-    jcenter()
 }
 
 dependencies {
@@ -22,13 +20,14 @@ dependencies {
     implementation(project(":test-processor"))
     ksp(project(":test-processor"))
 }
- 
+
 android {
-    compileSdkVersion(30)
+    namespace = "com.example.myapplication"
+    compileSdk = 34
     defaultConfig {
         applicationId = "org.gradle.kotlin.dsl.samples.androidstudio"
-        minSdkVersion(30)
-        targetSdkVersion(30)
+        minSdk = 34
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
     }

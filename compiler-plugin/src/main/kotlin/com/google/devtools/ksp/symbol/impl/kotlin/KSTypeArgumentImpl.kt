@@ -15,30 +15,27 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
-import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
-import com.google.devtools.ksp.symbol.impl.memoized
+import com.google.devtools.ksp.common.findParentOfType
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.processing.impl.KSObjectCache
+import com.google.devtools.ksp.symbol.KSAnnotation
+import com.google.devtools.ksp.symbol.KSNode
+import com.google.devtools.ksp.symbol.KSTypeArgument
+import com.google.devtools.ksp.symbol.KSTypeReference
+import com.google.devtools.ksp.symbol.KSVisitor
+import com.google.devtools.ksp.symbol.Location
+import com.google.devtools.ksp.symbol.Origin
+import com.google.devtools.ksp.symbol.Variance
 import com.google.devtools.ksp.symbol.impl.toLocation
 import org.jetbrains.kotlin.psi.KtProjectionKind
 import org.jetbrains.kotlin.psi.KtTypeProjection
+import org.jetbrains.kotlin.psi.KtUserType
 
 abstract class KSTypeArgumentImpl : KSTypeArgument {
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {
         return visitor.visitTypeArgument(this, data)
-    }
-
-    override fun hashCode(): Int {
-        return type.hashCode() * 31 + variance.hashCode()
-    }
-
-    override fun equals(other: Any?): Boolean {
-        if (other !is KSTypeArgument)
-            return false
-
-        return variance == other.variance && type == other.type
     }
 
     override fun toString(): String {
@@ -48,13 +45,19 @@ abstract class KSTypeArgumentImpl : KSTypeArgument {
 
 class KSTypeArgumentKtImpl private constructor(val ktTypeArgument: KtTypeProjection) : KSTypeArgumentImpl() {
     companion object : KSObjectCache<KtTypeProjection, KSTypeArgumentKtImpl>() {
-        fun getCached(ktTypeArgument: KtTypeProjection) = cache.getOrPut(ktTypeArgument) { KSTypeArgumentKtImpl(ktTypeArgument) }
+        fun getCached(ktTypeArgument: KtTypeProjection) = cache.getOrPut(ktTypeArgument) {
+            KSTypeArgumentKtImpl(ktTypeArgument)
+        }
     }
 
     override val origin = Origin.KOTLIN
 
     override val location: Location by lazy {
         ktTypeArgument.toLocation()
+    }
+
+    override val parent: KSNode? by lazy {
+        ktTypeArgument.findParentOfType<KtUserType>()?.let { KSClassifierReferenceImpl.getCached(it) }
     }
 
     override val variance: Variance by lazy {

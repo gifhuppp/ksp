@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.symbol
 
 /**
@@ -24,5 +22,6 @@ package com.google.devtools.ksp.symbol
 interface KSNode {
     val origin: Origin
     val location: Location
+    val parent: KSNode?
     fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R
 }

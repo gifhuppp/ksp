@@ -15,25 +15,30 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
-import com.google.devtools.ksp.ExceptionMessage
-import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
-import com.google.devtools.ksp.symbol.impl.memoized
-import com.google.devtools.ksp.symbol.impl.toKSModifiers
-import com.google.devtools.ksp.symbol.impl.toLocation
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.impl.KSTypeReferenceSyntheticImpl
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.processing.impl.KSObjectCache
+import com.google.devtools.ksp.processing.impl.ResolverImpl
+import com.google.devtools.ksp.symbol.KSExpectActual
+import com.google.devtools.ksp.symbol.KSName
+import com.google.devtools.ksp.symbol.KSTypeParameter
+import com.google.devtools.ksp.symbol.KSTypeReference
+import com.google.devtools.ksp.symbol.KSVisitor
+import com.google.devtools.ksp.symbol.Variance
 import org.jetbrains.kotlin.lexer.KtTokens
-import org.jetbrains.kotlin.psi.*
-import org.jetbrains.kotlin.psi.psiUtil.containingClassOrObject
+import org.jetbrains.kotlin.psi.KtTypeParameter
+import org.jetbrains.kotlin.psi.KtTypeParameterListOwner
 
-class KSTypeParameterImpl private constructor(val ktTypeParameter: KtTypeParameter, val owner: KtTypeParameterListOwner) : KSTypeParameter,
+class KSTypeParameterImpl private constructor(val ktTypeParameter: KtTypeParameter) :
+    KSTypeParameter,
     KSDeclarationImpl(ktTypeParameter),
     KSExpectActual by KSExpectActualNoImpl() {
-    companion object : KSObjectCache<Pair<KtTypeParameter, KtTypeParameterListOwner>, KSTypeParameterImpl>() {
-        fun getCached(ktTypeParameter: KtTypeParameter, owner: KtTypeParameterListOwner) =
-            cache.getOrPut(Pair(ktTypeParameter, owner)) { KSTypeParameterImpl(ktTypeParameter, owner) }
+    companion object : KSObjectCache<KtTypeParameter, KSTypeParameterImpl>() {
+        fun getCached(ktTypeParameter: KtTypeParameter) =
+            cache.getOrPut(ktTypeParameter) { KSTypeParameterImpl(ktTypeParameter) }
     }
 
     override val name: KSName by lazy {
@@ -53,28 +58,34 @@ class KSTypeParameterImpl private constructor(val ktTypeParameter: KtTypeParamet
         }
     }
 
+    private val owner: KtTypeParameterListOwner by lazy {
+        (parentDeclaration as KSDeclarationImpl).ktDeclaration as KtTypeParameterListOwner
+    }
+
     override val bounds: Sequence<KSTypeReference> by lazy {
         val list = sequenceOf(ktTypeParameter.extendsBound)
         list.plus(
             owner.typeConstraints
-                .filter { it.subjectTypeParameterName!!.getReferencedName() == ktTypeParameter.nameAsSafeName.asString() }
+                .filter {
+                    it.subjectTypeParameterName!!.getReferencedName() == ktTypeParameter.nameAsSafeName.asString()
+                }
                 .map { it.boundTypeReference }
-        ).filterNotNull().map { KSTypeReferenceImpl.getCached(it) }.memoized()
+        ).filterNotNull().map { KSTypeReferenceImpl.getCached(it) }.ifEmpty {
+            sequenceOf(
+                KSTypeReferenceSyntheticImpl.getCached(ResolverImpl.instance!!.builtIns.anyType.makeNullable(), this)
+            )
+        }.memoized()
     }
+
+    override val qualifiedName: KSName? by lazy {
+        KSNameImpl.getCached("${this.parentDeclaration!!.qualifiedName!!.asString()}.${simpleName.asString()}")
+    }
+
     override val simpleName: KSName by lazy {
         KSNameImpl.getCached(ktTypeParameter.name ?: "_")
     }
 
     override val typeParameters: List<KSTypeParameter> = emptyList()
-
-    override val parentDeclaration: KSDeclaration? by lazy {
-        when (owner) {
-            is KtClassOrObject -> KSClassDeclarationImpl.getCached(owner)
-            is KtFunction -> KSFunctionDeclarationImpl.getCached(owner)
-            is KtProperty -> KSPropertyDeclarationImpl.getCached(owner)
-            else -> throw IllegalStateException("Unexpected containing declaration type ${owner.javaClass}, $ExceptionMessage")
-        }
-    }
 
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {
         return visitor.visitTypeParameter(this, data)

@@ -15,24 +15,29 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.binary
 
-import org.jetbrains.kotlin.descriptors.*
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.*
+import org.jetbrains.kotlin.descriptors.*
+import org.jetbrains.org.objectweb.asm.Opcodes
 
-class KSPropertyDeclarationDescriptorImpl private constructor(val descriptor: PropertyDescriptor) : KSPropertyDeclaration,
+class KSPropertyDeclarationDescriptorImpl private constructor(val descriptor: PropertyDescriptor) :
+    KSPropertyDeclaration,
     KSDeclarationDescriptorImpl(descriptor),
     KSExpectActual by KSExpectActualDescriptorImpl(descriptor) {
     companion object : KSObjectCache<PropertyDescriptor, KSPropertyDeclarationDescriptorImpl>() {
-        fun getCached(descriptor: PropertyDescriptor) = cache.getOrPut(descriptor) { KSPropertyDeclarationDescriptorImpl(descriptor) }
+        fun getCached(descriptor: PropertyDescriptor) = cache.getOrPut(descriptor) {
+            KSPropertyDeclarationDescriptorImpl(descriptor)
+        }
     }
 
     override val extensionReceiver: KSTypeReference? by lazy {
         if (descriptor.extensionReceiverParameter != null) {
-            KSTypeReferenceDescriptorImpl.getCached(descriptor.extensionReceiverParameter!!.type, origin)
+            KSTypeReferenceDescriptorImpl.getCached(descriptor.extensionReceiverParameter!!.type, origin, this)
         } else {
             null
         }
@@ -42,7 +47,7 @@ class KSPropertyDeclarationDescriptorImpl private constructor(val descriptor: Pr
         // annotations on backing field will not visible in the property declaration so we query it directly to load
         // its annotations as well.
         val backingFieldAnnotations = descriptor.backingField?.annotations?.map {
-            KSAnnotationDescriptorImpl.getCached(it)
+            KSAnnotationDescriptorImpl.getCached(it, this)
         }.orEmpty()
         (super.annotations + backingFieldAnnotations).memoized()
     }
@@ -54,6 +59,20 @@ class KSPropertyDeclarationDescriptorImpl private constructor(val descriptor: Pr
     override val modifiers: Set<Modifier> by lazy {
         val modifiers = mutableSetOf<Modifier>()
         modifiers.addAll(descriptor.toKSModifiers())
+        if (descriptor.isConst) {
+            modifiers.add(Modifier.CONST)
+        }
+        if (descriptor.isLateInit) {
+            modifiers.add(Modifier.LATEINIT)
+        }
+
+        if (this.origin == Origin.JAVA_LIB) {
+            if (this.jvmAccessFlag and Opcodes.ACC_TRANSIENT != 0)
+                modifiers.add(Modifier.JAVA_TRANSIENT)
+            if (this.jvmAccessFlag and Opcodes.ACC_VOLATILE != 0)
+                modifiers.add(Modifier.JAVA_VOLATILE)
+        }
+
         modifiers
     }
 
@@ -78,7 +97,7 @@ class KSPropertyDeclarationDescriptorImpl private constructor(val descriptor: Pr
     }
 
     override val type: KSTypeReference by lazy {
-        KSTypeReferenceDescriptorImpl.getCached(descriptor.type, origin)
+        KSTypeReferenceDescriptorImpl.getCached(descriptor.type, origin, this)
     }
 
     override val hasBackingField: Boolean by lazy {
@@ -86,7 +105,7 @@ class KSPropertyDeclarationDescriptorImpl private constructor(val descriptor: Pr
     }
 
     override fun findOverridee(): KSPropertyDeclaration? {
-        val propertyDescriptor = ResolverImpl.instance.resolvePropertyDeclaration(this)
+        val propertyDescriptor = ResolverImpl.instance!!.resolvePropertyDeclaration(this)
         return propertyDescriptor?.findClosestOverridee()?.toKSPropertyDeclaration()
     }
 
@@ -99,5 +118,5 @@ class KSPropertyDeclarationDescriptorImpl private constructor(val descriptor: Pr
     }
 
     override fun asMemberOf(containing: KSType): KSType =
-        ResolverImpl.instance.asMemberOf(this, containing)
+        ResolverImpl.instance!!.asMemberOf(this, containing)
 }

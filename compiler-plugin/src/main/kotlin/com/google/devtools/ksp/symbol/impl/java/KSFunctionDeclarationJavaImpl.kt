@@ -15,19 +15,24 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.common.toKSModifiers
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.*
 import com.google.devtools.ksp.symbol.impl.kotlin.KSExpectActualNoImpl
-import com.google.devtools.ksp.symbol.impl.kotlin.KSNameImpl
 import com.intellij.lang.jvm.JvmModifier
 import com.intellij.psi.PsiJavaFile
 import com.intellij.psi.PsiMethod
+import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 
-class KSFunctionDeclarationJavaImpl private constructor(val psi: PsiMethod) : KSFunctionDeclaration, KSDeclarationJavaImpl(psi),
+class KSFunctionDeclarationJavaImpl private constructor(val psi: PsiMethod) :
+    KSFunctionDeclaration,
+    KSDeclarationJavaImpl(psi),
     KSExpectActual by KSExpectActualNoImpl() {
     companion object : KSObjectCache<PsiMethod, KSFunctionDeclarationJavaImpl>() {
         fun getCached(psi: PsiMethod) = cache.getOrPut(psi) { KSFunctionDeclarationJavaImpl(psi) }
@@ -48,8 +53,8 @@ class KSFunctionDeclarationJavaImpl private constructor(val psi: PsiMethod) : KS
     }
 
     override fun findOverridee(): KSDeclaration? {
-        val descriptor = ResolverImpl.instance.resolveFunctionDeclaration(this)
-        return descriptor?.findClosestOverridee()?.toKSDeclaration()
+        val descriptor = ResolverImpl.instance!!.resolveFunctionDeclaration(this)
+        return (descriptor as? FunctionDescriptor)?.findClosestOverridee()?.toKSDeclaration()
     }
 
     override val declarations: Sequence<KSDeclaration> = emptySequence()
@@ -63,8 +68,10 @@ class KSFunctionDeclarationJavaImpl private constructor(val psi: PsiMethod) : KS
 
     override val isAbstract: Boolean by lazy {
         this.modifiers.contains(Modifier.ABSTRACT) ||
-                ((this.parentDeclaration as? KSClassDeclaration)?.classKind == ClassKind.INTERFACE &&
-                        !this.modifiers.contains(Modifier.JAVA_DEFAULT))
+            (
+                (this.parentDeclaration as? KSClassDeclaration)?.classKind == ClassKind.INTERFACE &&
+                    !this.modifiers.contains(Modifier.JAVA_DEFAULT) && functionKind != FunctionKind.STATIC
+                )
     }
 
     override val modifiers: Set<Modifier> by lazy {
@@ -72,7 +79,7 @@ class KSFunctionDeclarationJavaImpl private constructor(val psi: PsiMethod) : KS
     }
 
     override val parameters: List<KSValueParameter> by lazy {
-        psi.parameterList.parameters.map { KSValueParameterJavaImpl.getCached(it) }
+        psi.parameterList.parameters.map { KSValueParameterJavaImpl.getCached(it, this) }
     }
 
     override val parentDeclaration: KSDeclaration? by lazy {
@@ -86,14 +93,10 @@ class KSFunctionDeclarationJavaImpl private constructor(val psi: PsiMethod) : KS
     override val returnType: KSTypeReference? by lazy {
         when {
             psi.returnType != null -> {
-                KSTypeReferenceJavaImpl.getCached(psi.returnType!!)
+                KSTypeReferenceJavaImpl.getCached(psi.returnType!!, this)
             }
             psi.isConstructor -> {
-                psi.containingClass?.let { containingClass ->
-                    KSTypeReferenceLiteJavaImpl.getCached(
-                        KSClassDeclarationJavaImpl.getCached(containingClass).asStarProjectedType()
-                    )
-                }
+                KSTypeReferenceLiteJavaImpl.getCached(psi, this)
             }
             else -> {
                 null
@@ -118,5 +121,5 @@ class KSFunctionDeclarationJavaImpl private constructor(val psi: PsiMethod) : KS
     }
 
     override fun asMemberOf(containing: KSType): KSFunction =
-        ResolverImpl.instance.asMemberOf(this, containing)
+        ResolverImpl.instance!!.asMemberOf(this, containing)
 }

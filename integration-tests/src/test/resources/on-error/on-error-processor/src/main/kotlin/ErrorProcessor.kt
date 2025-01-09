@@ -1,10 +1,6 @@
 import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.validate
-import java.io.File
 import java.io.OutputStream
-import kotlin.math.round
-
 
 class ErrorProcessor : SymbolProcessor {
     lateinit var codeGenerator: CodeGenerator
@@ -13,7 +9,12 @@ class ErrorProcessor : SymbolProcessor {
     var rounds = 0
     lateinit var exception: String
 
-    fun init(options: Map<String, String>, kotlinVersion: KotlinVersion, codeGenerator: CodeGenerator, logger: KSPLogger) {
+    fun init(
+        options: Map<String, String>,
+        kotlinVersion: KotlinVersion,
+        codeGenerator: CodeGenerator,
+        logger: KSPLogger
+    ) {
         exception = if (options.containsKey("exception")) {
             options["exception"]!!
         } else {
@@ -27,13 +28,17 @@ class ErrorProcessor : SymbolProcessor {
     }
 
     override fun process(resolver: Resolver): List<KSAnnotated> {
+        if (exception == "createTwice") {
+            codeGenerator.createNewFile(Dependencies.ALL_FILES, "create", "Twice").write("".toByteArray())
+            return emptyList()
+        }
         if (exception == "process") {
             throw Exception("Test Exception in process")
         }
         rounds++
         if (rounds == 2) {
             if (exception == "" || exception == "error") {
-                logger.error("Error processor: errored at ${rounds}")
+                logger.error("Error processor: errored at $rounds")
             }
         } else {
             codeGenerator.createNewFile(Dependencies.ALL_FILES, "test", "error", "log")

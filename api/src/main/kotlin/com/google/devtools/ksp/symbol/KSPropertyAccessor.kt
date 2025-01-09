@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.symbol
 
 /**
@@ -23,7 +21,7 @@ package com.google.devtools.ksp.symbol
  * Note that annotation use-site targets such as @get: @set: is not copied to accessor's annotations attribute.
  * Use KSAnnotated.findAnnotationFromUseSiteTarget() to ensure annotations from parent is obtained.
  */
-interface KSPropertyAccessor : KSAnnotated, KSModifierListOwner {
+interface KSPropertyAccessor : KSDeclarationContainer, KSAnnotated, KSModifierListOwner {
     /**
      * The owner of the property accessor.
      */

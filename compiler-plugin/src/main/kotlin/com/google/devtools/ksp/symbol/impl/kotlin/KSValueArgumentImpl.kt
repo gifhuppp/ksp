@@ -15,18 +15,31 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
-import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
+import com.google.devtools.ksp.processing.impl.KSObjectCache
+import com.google.devtools.ksp.symbol.KSAnnotation
+import com.google.devtools.ksp.symbol.KSName
+import com.google.devtools.ksp.symbol.KSNode
+import com.google.devtools.ksp.symbol.KSValueArgument
+import com.google.devtools.ksp.symbol.KSVisitor
+import com.google.devtools.ksp.symbol.Location
+import com.google.devtools.ksp.symbol.NonExistLocation
+import com.google.devtools.ksp.symbol.Origin
 
-class KSValueArgumentLiteImpl private constructor(override val name: KSName, override val value: Any?) : KSValueArgumentImpl() {
-    companion object : KSObjectCache<Pair<KSName, Any?>, KSValueArgumentLiteImpl>() {
-        fun getCached(name: KSName, value: Any?) = cache.getOrPut(Pair(name, value)) { KSValueArgumentLiteImpl(name, value) }
+class KSValueArgumentLiteImpl private constructor(
+    override val name: KSName,
+    override val value: Any?,
+    override val parent: KSNode?,
+    override val origin: Origin
+) : KSValueArgumentImpl() {
+    companion object : KSObjectCache<Triple<KSName, Any?, KSNode>, KSValueArgumentLiteImpl>() {
+
+        fun getCached(name: KSName, value: Any?, parent: KSNode, origin: Origin = Origin.KOTLIN) = cache
+            .getOrPut(Triple(name, value, parent)) {
+                KSValueArgumentLiteImpl(name, value, parent, origin)
+            }
     }
-
-    override val origin = Origin.KOTLIN
 
     override val location: Location = NonExistLocation
 
@@ -52,6 +65,6 @@ abstract class KSValueArgumentImpl : KSValueArgument {
     }
 
     override fun toString(): String {
-        return "${name?.asString() ?: ""}:${value.toString()}"
+        return "${name?.asString() ?: ""}:$value"
     }
 }
