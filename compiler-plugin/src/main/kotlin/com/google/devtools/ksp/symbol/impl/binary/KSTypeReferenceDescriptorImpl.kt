@@ -15,34 +15,49 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.binary
 
-import com.google.devtools.ksp.ExceptionMessage
-import org.jetbrains.kotlin.builtins.isSuspendFunctionTypeOrSubtype
-import org.jetbrains.kotlin.descriptors.ClassDescriptor
-import org.jetbrains.kotlin.descriptors.TypeParameterDescriptor
-import com.google.devtools.ksp.symbol.*
+import com.google.devtools.ksp.common.IdKeyTriple
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.processing.impl.KSObjectCache
+import com.google.devtools.ksp.symbol.KSAnnotation
+import com.google.devtools.ksp.symbol.KSNode
+import com.google.devtools.ksp.symbol.KSReferenceElement
+import com.google.devtools.ksp.symbol.KSType
+import com.google.devtools.ksp.symbol.KSTypeReference
+import com.google.devtools.ksp.symbol.KSVisitor
+import com.google.devtools.ksp.symbol.Location
 import com.google.devtools.ksp.symbol.Modifier
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
-import com.google.devtools.ksp.symbol.impl.kotlin.IdKey
+import com.google.devtools.ksp.symbol.NonExistLocation
+import com.google.devtools.ksp.symbol.Origin
 import com.google.devtools.ksp.symbol.impl.kotlin.getKSTypeCached
-import com.google.devtools.ksp.symbol.impl.memoized
-import org.jetbrains.kotlin.types.*
+import org.jetbrains.kotlin.builtins.isSuspendFunctionTypeOrSubtype
+import org.jetbrains.kotlin.types.AbbreviatedType
+import org.jetbrains.kotlin.types.KotlinType
 
-class KSTypeReferenceDescriptorImpl private constructor(val kotlinType: KotlinType, override val origin: Origin) : KSTypeReference {
-    companion object : KSObjectCache<IdKey<Pair<KotlinType, Origin>>, KSTypeReferenceDescriptorImpl>() {
-        fun getCached(kotlinType: KotlinType, origin: Origin) = cache.getOrPut(IdKey(Pair(kotlinType, origin))) { KSTypeReferenceDescriptorImpl(kotlinType, origin) }
+class KSTypeReferenceDescriptorImpl private constructor(
+    val kotlinType: KotlinType,
+    override val origin: Origin,
+    override val parent: KSNode?
+) : KSTypeReference {
+    companion object : KSObjectCache<IdKeyTriple<KotlinType, Origin, KSNode?>, KSTypeReferenceDescriptorImpl>() {
+        fun getCached(kotlinType: KotlinType, origin: Origin, parent: KSNode?) = cache
+            .getOrPut(IdKeyTriple(kotlinType, origin, parent)) {
+                KSTypeReferenceDescriptorImpl(kotlinType, origin, parent)
+            }
     }
+
+    private fun KotlinType.findAlias(): KotlinType =
+        (kotlinType as? AbbreviatedType)?.abbreviation ?: this
 
     override val location: Location = NonExistLocation
 
     override val element: KSReferenceElement by lazy {
-        KSClassifierReferenceDescriptorImpl.getCached(kotlinType, origin)
+        KSClassifierReferenceDescriptorImpl.getCached(kotlinType.findAlias(), origin, this)
     }
 
     override val annotations: Sequence<KSAnnotation> by lazy {
-        kotlinType.annotations.asSequence().map { KSAnnotationDescriptorImpl.getCached(it) }.memoized()
+        kotlinType.annotations.asSequence().map { KSAnnotationDescriptorImpl.getCached(it, this) }.memoized()
     }
 
     override val modifiers: Set<Modifier> by lazy {

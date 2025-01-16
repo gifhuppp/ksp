@@ -15,38 +15,40 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.binary
 
-import com.google.devtools.ksp.ExceptionMessage
+import com.google.devtools.ksp.*
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.*
-import com.google.devtools.ksp.symbol.impl.findPsi
 import com.google.devtools.ksp.symbol.impl.java.KSFunctionDeclarationJavaImpl
 import com.google.devtools.ksp.symbol.impl.java.KSPropertyDeclarationJavaImpl
-import com.google.devtools.ksp.symbol.impl.kotlin.KSClassDeclarationImpl
-import com.google.devtools.ksp.symbol.impl.kotlin.KSFunctionDeclarationImpl
-import com.google.devtools.ksp.symbol.impl.kotlin.KSPropertyDeclarationImpl
-import com.google.devtools.ksp.symbol.impl.kotlin.KSPropertyDeclarationParameterImpl
-import com.google.devtools.ksp.symbol.impl.kotlin.getKSTypeCached
+import com.google.devtools.ksp.symbol.impl.kotlin.*
 import com.google.devtools.ksp.symbol.impl.replaceTypeArguments
 import com.intellij.psi.PsiField
 import com.intellij.psi.PsiMethod
+import org.jetbrains.kotlin.builtins.StandardNames
 import org.jetbrains.kotlin.descriptors.*
+import org.jetbrains.kotlin.psi.KtClassOrObject
 import org.jetbrains.kotlin.psi.KtFunction
 import org.jetbrains.kotlin.psi.KtParameter
 import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.resolve.calls.tower.isSynthesized
 import org.jetbrains.kotlin.resolve.scopes.DescriptorKindFilter
 import org.jetbrains.kotlin.resolve.scopes.getDescriptorsFiltered
 import org.jetbrains.kotlin.types.typeUtil.replaceArgumentsWithStarProjections
 import org.jetbrains.kotlin.descriptors.ClassKind as KtClassKind
 
-class KSClassDeclarationDescriptorImpl private constructor(val descriptor: ClassDescriptor) : KSClassDeclaration,
+class KSClassDeclarationDescriptorImpl private constructor(val descriptor: ClassDescriptor) :
+    KSClassDeclaration,
     KSDeclarationDescriptorImpl(descriptor),
     KSExpectActual by KSExpectActualDescriptorImpl(descriptor) {
     companion object : KSObjectCache<ClassDescriptor, KSClassDeclarationDescriptorImpl>() {
-        fun getCached(descriptor: ClassDescriptor) = cache.getOrPut(descriptor) { KSClassDeclarationDescriptorImpl(descriptor) }
+        fun getCached(descriptor: ClassDescriptor) = cache.getOrPut(descriptor) {
+            KSClassDeclarationDescriptorImpl(descriptor)
+        }
     }
 
     override val classKind: ClassKind by lazy {
@@ -77,17 +79,17 @@ class KSClassDeclarationDescriptorImpl private constructor(val descriptor: Class
     }
 
     // Workaround for https://github.com/google/ksp/issues/195
-    private val mockSerializableType = ResolverImpl.instance.mockSerializableType
-    private val javaSerializableType = ResolverImpl.instance.javaSerializableType
+    private val mockSerializableType = ResolverImpl.instance!!.mockSerializableType
+    private val javaSerializableType = ResolverImpl.instance!!.javaSerializableType
 
     override val superTypes: Sequence<KSTypeReference> by lazy {
-        if (javaSerializableType == null)
-            return@lazy emptySequence()
 
-        descriptor.defaultType.constructor.supertypes.asSequence().map {
+        descriptor.defaultType.constructor.supertypes.asSequence().map { kotlinType ->
             KSTypeReferenceDescriptorImpl.getCached(
-                if (it === mockSerializableType) javaSerializableType else it,
-                origin
+                javaSerializableType?.let { if (kotlinType === mockSerializableType) it else kotlinType }
+                    ?: kotlinType,
+                origin,
+                this
             )
         }.memoized()
     }
@@ -99,14 +101,20 @@ class KSClassDeclarationDescriptorImpl private constructor(val descriptor: Class
     override val declarations: Sequence<KSDeclaration> by lazy {
         sequenceOf(
             descriptor.unsubstitutedMemberScope.getDescriptorsFiltered(),
-            descriptor.staticScope.getDescriptorsFiltered(),
+            // FIXME: Support static, synthetic `entries` for enums when the language feature is enabled.
+            descriptor.staticScope.getDescriptorsFiltered().filterNot {
+                descriptor.kind == KtClassKind.ENUM_CLASS &&
+                    it is CallableDescriptor &&
+                    it.isSynthesized &&
+                    it.name == StandardNames.ENUM_ENTRIES
+            },
             descriptor.constructors
         ).flatten()
             .filter {
-                it is MemberDescriptor
-                        && it.visibility != DescriptorVisibilities.INHERITED
-                        && it.visibility != DescriptorVisibilities.INVISIBLE_FAKE
-                        && (it !is CallableMemberDescriptor || it.kind != CallableMemberDescriptor.Kind.FAKE_OVERRIDE)
+                it is MemberDescriptor &&
+                    it.visibility != DescriptorVisibilities.INHERITED &&
+                    it.visibility != DescriptorVisibilities.INVISIBLE_FAKE &&
+                    (it !is CallableMemberDescriptor || it.kind != CallableMemberDescriptor.Kind.FAKE_OVERRIDE)
             }
             .map {
                 when (it) {
@@ -143,7 +151,7 @@ class KSClassDeclarationDescriptorImpl private constructor(val descriptor: Class
     }
 
     override fun asType(typeArguments: List<KSTypeArgument>): KSType =
-        getKSTypeCached(descriptor.defaultType.replaceTypeArguments(typeArguments), typeArguments)
+        descriptor.defaultType.replaceTypeArguments(typeArguments)
 
     override fun asStarProjectedType(): KSType {
         return getKSTypeCached(descriptor.defaultType.replaceArgumentsWithStarProjections())
@@ -155,7 +163,7 @@ class KSClassDeclarationDescriptorImpl private constructor(val descriptor: Class
 }
 
 internal fun ClassDescriptor.getAllFunctions(): Sequence<KSFunctionDeclaration> {
-    ResolverImpl.instance.incrementalContext.recordLookupForGetAllFunctions(this)
+    ResolverImpl.instance!!.incrementalContext.recordLookupForGetAllFunctions(this)
     val functionDescriptors = unsubstitutedMemberScope.getDescriptorsFiltered(DescriptorKindFilter.FUNCTIONS)
         .asSequence()
         .filter { (it as FunctionDescriptor).visibility != DescriptorVisibilities.INVISIBLE_FAKE }
@@ -169,22 +177,27 @@ internal fun ClassDescriptor.getAllFunctions(): Sequence<KSFunctionDeclaration> 
 }
 
 internal fun ClassDescriptor.getAllProperties(): Sequence<KSPropertyDeclaration> {
-    ResolverImpl.instance.incrementalContext.recordLookupForGetAllProperties(this)
+    ResolverImpl.instance!!.incrementalContext.recordLookupForGetAllProperties(this)
     return unsubstitutedMemberScope.getDescriptorsFiltered(DescriptorKindFilter.VARIABLES).asSequence()
-            .filter { (it as PropertyDescriptor).visibility != DescriptorVisibilities.INVISIBLE_FAKE }
-            .map {
-                when (val psi = it.findPsi()) {
-                    is KtParameter -> KSPropertyDeclarationParameterImpl.getCached(psi)
-                    is KtProperty -> KSPropertyDeclarationImpl.getCached(psi)
-                    is PsiField -> KSPropertyDeclarationJavaImpl.getCached(psi)
-                    else -> KSPropertyDeclarationDescriptorImpl.getCached(it as PropertyDescriptor)
-                }
+        .filter { (it as PropertyDescriptor).visibility != DescriptorVisibilities.INVISIBLE_FAKE }
+        .map {
+            when (val psi = it.findPsi()) {
+                is KtParameter -> KSPropertyDeclarationParameterImpl.getCached(psi)
+                is KtProperty -> KSPropertyDeclarationImpl.getCached(psi)
+                is PsiField -> KSPropertyDeclarationJavaImpl.getCached(psi)
+                else -> KSPropertyDeclarationDescriptorImpl.getCached(it as PropertyDescriptor)
             }
+        }
 }
 
 internal fun ClassDescriptor.sealedSubclassesSequence(): Sequence<KSClassDeclaration> {
     // TODO record incremental subclass lookups in Kotlin 1.5.x?
     return sealedSubclasses
         .asSequence()
-        .map { KSClassDeclarationDescriptorImpl.getCached(it) }
+        .map { sealedSubClass ->
+            when (val psi = sealedSubClass.findPsi()) {
+                is KtClassOrObject -> KSClassDeclarationImpl.getCached(psi)
+                else -> KSClassDeclarationDescriptorImpl.getCached(sealedSubClass)
+            }
+        }
 }

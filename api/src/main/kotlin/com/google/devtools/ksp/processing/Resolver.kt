@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.processing
 
 import com.google.devtools.ksp.KspExperimental
@@ -35,16 +33,19 @@ interface Resolver {
     /**
      * Get all files in the module / compilation unit.
      *
-     * @return all files generated from last last round of processing in the module.
+     * @return all input files including generated files from previous rounds, note when incremental is enabled, only dirty files up for processing will be returned.
      */
     fun getAllFiles(): Sequence<KSFile>
 
     /**
-     * Get all symbols with specified annotation.
+     * Get all symbols with specified annotation in the current compilation unit.
+     * Note that in multiple round processing, only symbols from deferred symbols of last round and symbols from newly generated files will be returned in this function.
      *
      * @param annotationName is the fully qualified name of the annotation; using '.' as separator.
      * @param inDepth whether to check symbols in depth, i.e. check symbols from local declarations. Operation can be expensive if true.
      * @return Elements annotated with the specified annotation.
+     *
+     * @see getDeclarationsFromPackage to get declarations outside the current compilation unit.
      */
     fun getSymbolsWithAnnotation(annotationName: String, inDepth: Boolean = false): Sequence<KSAnnotated>
 
@@ -123,6 +124,15 @@ interface Resolver {
      * Calling [overrides] is expensive and should be avoided if possible.
      */
     fun overrides(overrider: KSDeclaration, overridee: KSDeclaration): Boolean
+
+    /**
+     * @param overrider the candidate overriding declaration being checked.
+     * @param overridee the candidate overridden declaration being checked.
+     * @param containingClass the containing class of candidate overriding and overridden declaration being checked.
+     * @return boolean value indicating whether [overrider] overrides [overridee]
+     * Calling [overrides] is expensive and should be avoided if possible.
+     */
+    fun overrides(overrider: KSDeclaration, overridee: KSDeclaration, containingClass: KSClassDeclaration): Boolean
 
     /**
      * Returns the jvm name of the given function.
@@ -223,6 +233,9 @@ interface Resolver {
 
     /**
      * Returns declarations with the given package name.
+     *
+     * getDeclarationsFromPackage looks for declaration in the whole classpath, including dependencies.
+     *
      * @param packageName the package name to look up.
      * @return A sequence of [KSDeclaration] with matching package name.
      * This will return declarations from both dependencies and source.
@@ -260,4 +273,60 @@ interface Resolver {
      */
     @KspExperimental
     fun mapKotlinNameToJava(kotlinName: KSName): KSName?
+
+    /**
+     * Same as KSDeclarationContainer.declarations, but sorted by declaration order in the source.
+     *
+     * Note that this is SLOW. AVOID IF POSSIBLE.
+     */
+    @KspExperimental
+    fun getDeclarationsInSourceOrder(container: KSDeclarationContainer): Sequence<KSDeclaration>
+
+    /**
+     * Returns a set of effective Java modifiers, if declaration is being / was generated to Java bytecode.
+     */
+    @KspExperimental
+    fun effectiveJavaModifiers(declaration: KSDeclaration): Set<Modifier>
+
+    /**
+     * Compute the corresponding Java wildcard, from the given reference.
+     *
+     * @param reference the reference to the type usage
+     * @return an equivalent type reference from the Java wildcard's point of view
+     */
+    @KspExperimental
+    fun getJavaWildcard(reference: KSTypeReference): KSTypeReference
+
+    /**
+     * Tests a type if it was declared as legacy "raw" type in Java - a type with its type arguments fully omitted.
+     *
+     * @param type a type to check.
+     * @return True if the type is a "raw" type.
+     */
+    @KspExperimental
+    fun isJavaRawType(type: KSType): Boolean
+
+    /**
+     * Returns annotations applied in package-info.java (if applicable) for given package name.
+     *
+     * @param packageName package name to check.
+     * @return a sequence of KSAnnotations applied in corresponding package-info.java file.
+     */
+    @KspExperimental
+    fun getPackageAnnotations(packageName: String): Sequence<KSAnnotation>
+
+    /**
+     * Returns name of packages with given annotation.
+     *
+     * @param annotationName name of the annotation to be queried.
+     * @return a sequence of package names with corresponding annotation name.
+     */
+    @KspExperimental
+    fun getPackagesWithAnnotation(annotationName: String): Sequence<String>
+
+    /**
+     * @return the name of the kotlin module this resolver is running on.
+     */
+    @KspExperimental
+    fun getModuleName(): KSName
 }

@@ -15,29 +15,46 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
 import com.google.devtools.ksp.ExceptionMessage
-import com.intellij.psi.*
-import com.intellij.psi.impl.source.PsiClassReferenceType
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
-import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
+import com.google.devtools.ksp.symbol.KSAnnotated
+import com.google.devtools.ksp.symbol.KSAnnotation
+import com.google.devtools.ksp.symbol.KSNode
+import com.google.devtools.ksp.symbol.KSReferenceElement
+import com.google.devtools.ksp.symbol.KSType
+import com.google.devtools.ksp.symbol.KSTypeReference
+import com.google.devtools.ksp.symbol.KSVisitor
+import com.google.devtools.ksp.symbol.Location
+import com.google.devtools.ksp.symbol.Modifier
+import com.google.devtools.ksp.symbol.NonExistLocation
+import com.google.devtools.ksp.symbol.Origin
 import com.google.devtools.ksp.symbol.impl.binary.KSClassDeclarationDescriptorImpl
 import com.google.devtools.ksp.symbol.impl.binary.KSClassifierReferenceDescriptorImpl
 import com.google.devtools.ksp.symbol.impl.kotlin.KSErrorType
 import com.google.devtools.ksp.symbol.impl.kotlin.KSTypeImpl
-import com.google.devtools.ksp.symbol.impl.memoized
 import com.google.devtools.ksp.symbol.impl.toLocation
+import com.intellij.psi.PsiArrayType
+import com.intellij.psi.PsiClassType
+import com.intellij.psi.PsiPrimitiveType
+import com.intellij.psi.PsiType
+import com.intellij.psi.PsiWildcardType
+import com.intellij.psi.impl.source.PsiClassReferenceType
 import org.jetbrains.kotlin.descriptors.NotFoundClasses
+import org.jetbrains.kotlin.load.java.NOT_NULL_ANNOTATIONS
+import org.jetbrains.kotlin.load.java.NULLABLE_ANNOTATIONS
+import org.jetbrains.kotlin.resolve.descriptorUtil.fqNameSafe
 import org.jetbrains.kotlin.types.KotlinType
 import org.jetbrains.kotlin.types.Variance
 import org.jetbrains.kotlin.types.typeUtil.makeNullable
 
-class KSTypeReferenceJavaImpl private constructor(val psi: PsiType) : KSTypeReference {
-    companion object : KSObjectCache<PsiType, KSTypeReferenceJavaImpl>() {
-        fun getCached(psi: PsiType) = cache.getOrPut(psi) { KSTypeReferenceJavaImpl(psi) }
+class KSTypeReferenceJavaImpl private constructor(val psi: PsiType, override val parent: KSNode?) : KSTypeReference {
+    companion object : KSObjectCache<Pair<PsiType, KSNode?>, KSTypeReferenceJavaImpl>() {
+        fun getCached(psi: PsiType, parent: KSNode?) = cache
+            .getOrPut(Pair(psi, parent)) { KSTypeReferenceJavaImpl(psi, parent) }
     }
 
     override val origin = Origin.JAVA
@@ -55,15 +72,15 @@ class KSTypeReferenceJavaImpl private constructor(val psi: PsiType) : KSTypeRefe
     override val element: KSReferenceElement by lazy {
         fun PsiPrimitiveType.toKotlinType(): KotlinType {
             return when (this.name) {
-                "int" -> ResolverImpl.instance.module.builtIns.intType
-                "short" -> ResolverImpl.instance.module.builtIns.shortType
-                "byte" -> ResolverImpl.instance.module.builtIns.byteType
-                "long" -> ResolverImpl.instance.module.builtIns.longType
-                "float" -> ResolverImpl.instance.module.builtIns.floatType
-                "double" -> ResolverImpl.instance.module.builtIns.doubleType
-                "char" -> ResolverImpl.instance.module.builtIns.charType
-                "boolean" -> ResolverImpl.instance.module.builtIns.booleanType
-                "void" -> ResolverImpl.instance.module.builtIns.unitType
+                "int" -> ResolverImpl.instance!!.module.builtIns.intType
+                "short" -> ResolverImpl.instance!!.module.builtIns.shortType
+                "byte" -> ResolverImpl.instance!!.module.builtIns.byteType
+                "long" -> ResolverImpl.instance!!.module.builtIns.longType
+                "float" -> ResolverImpl.instance!!.module.builtIns.floatType
+                "double" -> ResolverImpl.instance!!.module.builtIns.doubleType
+                "char" -> ResolverImpl.instance!!.module.builtIns.charType
+                "boolean" -> ResolverImpl.instance!!.module.builtIns.booleanType
+                "void" -> ResolverImpl.instance!!.module.builtIns.unitType
                 else -> throw IllegalStateException("Unexpected primitive type ${this.name}, $ExceptionMessage")
             }
         }
@@ -74,32 +91,53 @@ class KSTypeReferenceJavaImpl private constructor(val psi: PsiType) : KSTypeRefe
             psi
         }
         when (type) {
-            is PsiClassType -> KSClassifierReferenceJavaImpl.getCached(type)
-            is PsiWildcardType -> KSClassifierReferenceJavaImpl.getCached(type.extendsBound as PsiClassType)
-            is PsiPrimitiveType -> KSClassifierReferenceDescriptorImpl.getCached(type.toKotlinType(), origin)
+            is PsiClassType -> KSClassifierReferenceJavaImpl.getCached(type, this)
+            is PsiWildcardType -> KSClassifierReferenceJavaImpl.getCached(type.extendsBound as PsiClassType, this)
+            is PsiPrimitiveType -> KSClassifierReferenceDescriptorImpl.getCached(type.toKotlinType(), origin, this)
             is PsiArrayType -> {
-                val componentType = ResolverImpl.instance.resolveJavaType(type.componentType)
+                val componentType = ResolverImpl.instance!!.resolveJavaType(type.componentType, this)
                 if (type.componentType !is PsiPrimitiveType) {
                     KSClassifierReferenceDescriptorImpl.getCached(
-                        ResolverImpl.instance.module.builtIns.getArrayType(Variance.INVARIANT, componentType),
-                        origin
+                        ResolverImpl.instance!!.module.builtIns.getArrayType(Variance.OUT_VARIANCE, componentType),
+                        origin,
+                        this
                     )
                 } else {
                     KSClassifierReferenceDescriptorImpl.getCached(
-                        ResolverImpl.instance.module.builtIns.getPrimitiveArrayKotlinTypeByPrimitiveKotlinType(componentType)!!, origin
+                        ResolverImpl.instance!!.module.builtIns
+                            .getPrimitiveArrayKotlinTypeByPrimitiveKotlinType(componentType)!!,
+                        origin, this
                     )
                 }
             }
-            null -> KSClassifierReferenceDescriptorImpl.getCached((ResolverImpl.instance.builtIns.anyType as KSTypeImpl).kotlinType.makeNullable(), origin)
+            null ->
+                KSClassifierReferenceDescriptorImpl.getCached(
+                    (ResolverImpl.instance!!.builtIns.anyType as KSTypeImpl).kotlinType.makeNullable(), origin, this
+                )
             else -> throw IllegalStateException("Unexpected psi type for ${type.javaClass}, $ExceptionMessage")
         }
     }
 
     override fun resolve(): KSType {
-        val resolvedType = ResolverImpl.instance.resolveUserType(this)
-        return if ((resolvedType.declaration as? KSClassDeclarationDescriptorImpl)?.descriptor is NotFoundClasses.MockClassDescriptor) {
-            KSErrorType
-        } else resolvedType
+        val resolvedType = ResolverImpl.instance!!.resolveUserType(this)
+        val relatedAnnotations = (annotations + ((parent as? KSAnnotated)?.annotations ?: emptySequence()))
+            .mapNotNull {
+                (it.annotationType.resolve() as? KSTypeImpl)?.kotlinType?.constructor?.declarationDescriptor?.fqNameSafe
+            }
+        val resolved = when (val declaration = resolvedType.declaration) {
+            is KSClassDeclarationDescriptorImpl -> when (val descriptor = declaration.descriptor) {
+                is NotFoundClasses.MockClassDescriptor -> KSErrorType(descriptor.name.asString())
+                else -> resolvedType
+            }
+            else -> resolvedType
+        }
+        val hasNotNull = relatedAnnotations.any { it in NOT_NULL_ANNOTATIONS }
+        val hasNullable = relatedAnnotations.any { it in NULLABLE_ANNOTATIONS }
+        return if (hasNullable && !hasNotNull) {
+            resolved.makeNullable()
+        } else if (!hasNullable && hasNotNull) {
+            resolved.makeNotNullable()
+        } else resolved
     }
 
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {

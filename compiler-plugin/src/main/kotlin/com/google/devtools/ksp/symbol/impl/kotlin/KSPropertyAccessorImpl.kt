@@ -15,22 +15,36 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
+import com.google.devtools.ksp.common.memoized
 import com.google.devtools.ksp.processing.impl.findAnnotationFromUseSiteTarget
 import com.google.devtools.ksp.symbol.*
+import com.google.devtools.ksp.symbol.impl.getKSDeclarations
 import com.google.devtools.ksp.symbol.impl.toKSModifiers
 import com.google.devtools.ksp.symbol.impl.toLocation
-import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.KtPropertyAccessor
 
 abstract class KSPropertyAccessorImpl(val ktPropertyAccessor: KtPropertyAccessor) : KSPropertyAccessor {
+    companion object {
+        fun getCached(ktPropertyAccessor: KtPropertyAccessor): KSPropertyAccessor {
+            return if (ktPropertyAccessor.isGetter) {
+                KSPropertyGetterImpl.getCached(ktPropertyAccessor)
+            } else {
+                KSPropertySetterImpl.getCached(ktPropertyAccessor)
+            }
+        }
+    }
     override val receiver: KSPropertyDeclaration by lazy {
-        KSPropertyDeclarationImpl.getCached(ktPropertyAccessor.property as KtProperty)
+        KSPropertyDeclarationImpl.getCached(ktPropertyAccessor.property)
     }
     override val annotations: Sequence<KSAnnotation> by lazy {
-        ktPropertyAccessor.filterUseSiteTargetAnnotations().map { KSAnnotationImpl.getCached(it) }.plus(this.findAnnotationFromUseSiteTarget())
+        ktPropertyAccessor.filterUseSiteTargetAnnotations().map { KSAnnotationImpl.getCached(it) }
+            .plus(this.findAnnotationFromUseSiteTarget())
+    }
+
+    override val parent: KSNode? by lazy {
+        receiver
     }
 
     override val location: Location by lazy {
@@ -39,6 +53,15 @@ abstract class KSPropertyAccessorImpl(val ktPropertyAccessor: KtPropertyAccessor
 
     override val modifiers: Set<Modifier> by lazy {
         ktPropertyAccessor.toKSModifiers()
+    }
+
+    override val declarations: Sequence<KSDeclaration> by lazy {
+        if (!ktPropertyAccessor.hasBlockBody()) {
+            emptySequence()
+        } else {
+            ktPropertyAccessor.bodyBlockExpression?.statements?.asSequence()?.getKSDeclarations()?.memoized()
+                ?: emptySequence()
+        }
     }
 
     override val origin: Origin = Origin.KOTLIN

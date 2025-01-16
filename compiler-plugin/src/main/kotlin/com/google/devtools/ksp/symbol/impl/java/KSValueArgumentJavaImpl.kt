@@ -15,16 +15,25 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
-import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
+import com.google.devtools.ksp.processing.impl.KSObjectCache
+import com.google.devtools.ksp.symbol.KSAnnotation
+import com.google.devtools.ksp.symbol.KSName
+import com.google.devtools.ksp.symbol.KSNode
+import com.google.devtools.ksp.symbol.Location
+import com.google.devtools.ksp.symbol.NonExistLocation
+import com.google.devtools.ksp.symbol.Origin
 import com.google.devtools.ksp.symbol.impl.kotlin.KSValueArgumentImpl
 
-class KSValueArgumentJavaImpl private constructor(override val name: KSName?, override val value: Any?) : KSValueArgumentImpl() {
-    companion object : KSObjectCache<Pair<KSName?, Any?>, KSValueArgumentJavaImpl>() {
-        fun getCached(name: KSName?, value: Any?) = cache.getOrPut(Pair(name, value)) { KSValueArgumentJavaImpl(name, value) }
+class KSValueArgumentJavaImpl private constructor(
+    override val name: KSName?,
+    override val value: Any?,
+    override val parent: KSNode?
+) : KSValueArgumentImpl() {
+    companion object : KSObjectCache<Triple<KSName?, Any?, KSNode?>, KSValueArgumentJavaImpl>() {
+        fun getCached(name: KSName?, value: Any?, parent: KSNode?) =
+            cache.getOrPut(Triple(name, value, parent)) { KSValueArgumentJavaImpl(name, value, parent) }
     }
 
     override val origin = Origin.JAVA
@@ -36,6 +45,6 @@ class KSValueArgumentJavaImpl private constructor(override val name: KSName?, ov
     override val annotations: Sequence<KSAnnotation> = emptySequence()
 
     override fun toString(): String {
-        return "${name?.asString() ?: ""}:${value.toString()}"
+        return "${name?.asString() ?: ""}:$value"
     }
 }

@@ -15,34 +15,33 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.common.toKSModifiers
 import com.google.devtools.ksp.isConstructor
-import com.intellij.psi.PsiClass
-import com.intellij.psi.PsiJavaFile
-import org.jetbrains.kotlin.descriptors.ClassDescriptor
-import org.jetbrains.kotlin.descriptors.FunctionDescriptor
-import org.jetbrains.kotlin.descriptors.Visibilities
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.*
 import com.google.devtools.ksp.symbol.impl.binary.getAllFunctions
 import com.google.devtools.ksp.symbol.impl.binary.getAllProperties
+import com.google.devtools.ksp.symbol.impl.kotlin.KSErrorType
 import com.google.devtools.ksp.symbol.impl.kotlin.KSExpectActualNoImpl
-import com.google.devtools.ksp.symbol.impl.kotlin.KSNameImpl
 import com.google.devtools.ksp.symbol.impl.kotlin.getKSTypeCached
 import com.google.devtools.ksp.symbol.impl.replaceTypeArguments
 import com.google.devtools.ksp.symbol.impl.synthetic.KSConstructorSyntheticImpl
+import com.intellij.psi.PsiClass
 import com.intellij.psi.PsiEnumConstant
-import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
-import org.jetbrains.kotlin.descriptors.PropertyDescriptor
+import com.intellij.psi.PsiJavaFile
+import org.jetbrains.kotlin.descriptors.ClassDescriptor
 import org.jetbrains.kotlin.load.java.structure.impl.JavaClassImpl
-import org.jetbrains.kotlin.resolve.scopes.DescriptorKindFilter
-import org.jetbrains.kotlin.resolve.scopes.getDescriptorsFiltered
 import org.jetbrains.kotlin.types.typeUtil.replaceArgumentsWithStarProjections
 
-class KSClassDeclarationJavaImpl private constructor(val psi: PsiClass) : KSClassDeclaration, KSDeclarationJavaImpl(psi),
+class KSClassDeclarationJavaImpl private constructor(val psi: PsiClass) :
+    KSClassDeclaration,
+    KSDeclarationJavaImpl(psi),
     KSExpectActual by KSExpectActualNoImpl() {
     companion object : KSObjectCache<PsiClass, KSClassDeclarationJavaImpl>() {
         fun getCached(psi: PsiClass) = cache.getOrPut(psi) { KSClassDeclarationJavaImpl(psi) }
@@ -75,28 +74,31 @@ class KSClassDeclarationJavaImpl private constructor(val psi: PsiClass) : KSClas
 
     // Could the resolution ever fail?
     private val descriptor: ClassDescriptor? by lazy {
-        ResolverImpl.moduleClassResolver.resolveClass(JavaClassImpl(psi))
+        ResolverImpl.instance!!.moduleClassResolver.resolveClass(JavaClassImpl(psi))
     }
 
     // TODO in 1.5 + jvmTarget 15, will we return Java permitted types?
     override fun getSealedSubclasses(): Sequence<KSClassDeclaration> = emptySequence()
 
     override fun getAllFunctions(): Sequence<KSFunctionDeclaration> =
-            descriptor?.getAllFunctions() ?: emptySequence()
+        descriptor?.getAllFunctions() ?: emptySequence()
 
     override fun getAllProperties(): Sequence<KSPropertyDeclaration> =
-            descriptor?.getAllProperties() ?: emptySequence()
+        descriptor?.getAllProperties() ?: emptySequence()
 
     override val declarations: Sequence<KSDeclaration> by lazy {
-        val allDeclarations = (psi.fields.asSequence().map {
-            when (it) {
-                is PsiEnumConstant -> KSClassDeclarationJavaEnumEntryImpl.getCached(it)
-                else -> KSPropertyDeclarationJavaImpl.getCached(it)
-            } } +
+        val allDeclarations = (
+            psi.fields.asSequence().map {
+                when (it) {
+                    is PsiEnumConstant -> KSClassDeclarationJavaEnumEntryImpl.getCached(it)
+                    else -> KSPropertyDeclarationJavaImpl.getCached(it)
+                }
+            } +
                 psi.innerClasses.map { KSClassDeclarationJavaImpl.getCached(it) } +
                 psi.constructors.map { KSFunctionDeclarationJavaImpl.getCached(it) } +
-                psi.methods.map { KSFunctionDeclarationJavaImpl.getCached(it) })
-                .distinct()
+                psi.methods.map { KSFunctionDeclarationJavaImpl.getCached(it) }
+            )
+            .distinct()
         // java annotation classes are interface. they get a constructor in .class
         // hence they should get one here.
         if (classKind == ClassKind.ANNOTATION_CLASS || !psi.isInterface) {
@@ -106,7 +108,7 @@ class KSClassDeclarationJavaImpl private constructor(val psi: PsiClass) : KSClas
             if (hasConstructor) {
                 allDeclarations.memoized()
             } else {
-                (allDeclarations + KSConstructorSyntheticImpl(this)).memoized()
+                (allDeclarations + KSConstructorSyntheticImpl.getCached(this)).memoized()
             }
         } else {
             allDeclarations.memoized()
@@ -125,10 +127,6 @@ class KSClassDeclarationJavaImpl private constructor(val psi: PsiClass) : KSClas
         modifiers
     }
 
-    override val parentDeclaration: KSDeclaration? by lazy {
-        psi.findParentDeclaration()
-    }
-
     override val primaryConstructor: KSFunctionDeclaration? = null
 
     override val qualifiedName: KSName by lazy {
@@ -140,7 +138,14 @@ class KSClassDeclarationJavaImpl private constructor(val psi: PsiClass) : KSClas
     }
 
     override val superTypes: Sequence<KSTypeReference> by lazy {
-        psi.superTypes.asSequence().map { KSTypeReferenceJavaImpl.getCached(it) }.memoized()
+        val adjusted = if (!psi.isInterface && psi.superTypes.size > 1) {
+            psi.superTypes.filterNot {
+                it.className == "Object" && it.canonicalText == "java.lang.Object"
+            }
+        } else {
+            psi.superTypes.toList()
+        }
+        adjusted.asSequence().map { KSTypeReferenceJavaImpl.getCached(it, this) }.memoized()
     }
 
     override val typeParameters: List<KSTypeParameter> by lazy {
@@ -148,11 +153,13 @@ class KSClassDeclarationJavaImpl private constructor(val psi: PsiClass) : KSClas
     }
 
     override fun asType(typeArguments: List<KSTypeArgument>): KSType {
-        return getKSTypeCached(descriptor!!.defaultType.replaceTypeArguments(typeArguments), typeArguments)
+        return descriptor?.defaultType?.replaceTypeArguments(typeArguments) ?: KSErrorType(psi.qualifiedName)
     }
 
     override fun asStarProjectedType(): KSType {
-        return getKSTypeCached(descriptor!!.defaultType.replaceArgumentsWithStarProjections())
+        return descriptor?.let {
+            getKSTypeCached(it.defaultType.replaceArgumentsWithStarProjections())
+        } ?: KSErrorType(psi.qualifiedName)
     }
 
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {

@@ -14,18 +14,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.processing
 
 import com.google.devtools.ksp.symbol.KSAnnotated
 
 /**
  * [SymbolProcessor] is the interface used by plugins to integrate into Kotlin Symbol Processing.
- * SymbolProcessor supports multiple round execution, a processor may return a list of deferred symbols at the end
- * of every round, which will be passed to proceesors again in the next round, together with the newly generated symbols.
- * Upon Exceptions, KSP will try to distinguish the exceptions from KSP and exceptions from processors.
- * Exceptions will result in a termination of processing immediately and be logged as an error in KSPLogger.
+ * SymbolProcessor supports multiple rounds of execution, a processor may return a list of deferred symbols at the end
+ * of every round, which will be passed to processors again in the next round, together with the newly generated symbols.
+ * On exceptions, KSP will try to distinguish between exceptions from KSP and exceptions from processors.
+ * Exceptions from processors will immediately terminate processing and be logged as an error in KSPLogger.
  * Exceptions from KSP should be reported to KSP developers for further investigation.
  * At the end of the round where exceptions or errors happened, all processors will invoke onError() function to do
  * their own error handling.
@@ -35,7 +33,7 @@ interface SymbolProcessor {
      * Called by Kotlin Symbol Processing to run the processing task.
      *
      * @param resolver provides [SymbolProcessor] with access to compiler details such as Symbols.
-     * @return A list of deferred symbols that the processor can't process.
+     * @return A list of deferred symbols that the processor can't process. Only symbols that can't be processed at this round should be returned. Symbols in compiled code (libraries) are always valid and are ignored if returned in the deferral list.
      */
     fun process(resolver: Resolver): List<KSAnnotated>
 

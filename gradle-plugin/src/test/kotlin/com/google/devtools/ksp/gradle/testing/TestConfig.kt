@@ -55,8 +55,10 @@ data class TestConfig(
     }
 
     val androidBaseVersion by lazy {
-        kspProjectProperties["agpBaseVersion"] as String
+        kspProjectProperties["agpTestVersion"] as String
     }
+
+    val mavenRepoPath = mavenRepoDir.path.replace(File.separatorChar, '/')
 
     companion object {
         /**

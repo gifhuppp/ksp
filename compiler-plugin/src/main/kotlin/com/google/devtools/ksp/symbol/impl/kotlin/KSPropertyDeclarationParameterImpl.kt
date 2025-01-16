@@ -15,10 +15,10 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
 import com.google.devtools.ksp.isPrivate
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.*
@@ -26,15 +26,32 @@ import com.google.devtools.ksp.symbol.impl.synthetic.KSPropertyGetterSyntheticIm
 import com.google.devtools.ksp.symbol.impl.synthetic.KSPropertySetterSyntheticImpl
 import org.jetbrains.kotlin.psi.KtParameter
 
-class KSPropertyDeclarationParameterImpl private constructor(val ktParameter: KtParameter) : KSPropertyDeclaration,
+class KSPropertyDeclarationParameterImpl private constructor(val ktParameter: KtParameter) :
+    KSPropertyDeclaration,
     KSDeclarationImpl(ktParameter),
     KSExpectActual by KSExpectActualImpl(ktParameter) {
     companion object : KSObjectCache<KtParameter, KSPropertyDeclarationParameterImpl>() {
-        fun getCached(ktParameter: KtParameter) = cache.getOrPut(ktParameter) { KSPropertyDeclarationParameterImpl(ktParameter) }
+        fun getCached(ktParameter: KtParameter) = cache.getOrPut(ktParameter) {
+            KSPropertyDeclarationParameterImpl(ktParameter)
+        }
     }
 
     override val annotations: Sequence<KSAnnotation> by lazy {
         ktParameter.filterUseSiteTargetAnnotations().map { KSAnnotationImpl.getCached(it) }
+            .filterNot { valueParameterAnnotation ->
+                valueParameterAnnotation.useSiteTarget == AnnotationUseSiteTarget.PARAM ||
+                    (
+                        valueParameterAnnotation.annotationType.resolve()
+                            .declaration.annotations.any { metaAnnotation ->
+                                metaAnnotation.annotationType.resolve().declaration.qualifiedName
+                                    ?.asString() == "kotlin.annotation.Target" &&
+                                    (metaAnnotation.arguments.singleOrNull()?.value as? ArrayList<*>)?.any {
+                                    (it as? KSType)?.declaration?.qualifiedName
+                                        ?.asString() == "kotlin.annotation.AnnotationTarget.VALUE_PARAMETER"
+                                } ?: false
+                            } && valueParameterAnnotation.useSiteTarget == null
+                        )
+            }
     }
 
     override val parentDeclaration: KSDeclaration? by lazy {
@@ -77,8 +94,8 @@ class KSPropertyDeclarationParameterImpl private constructor(val ktParameter: Kt
     override fun isDelegated(): Boolean = false
 
     override fun findOverridee(): KSPropertyDeclaration? {
-        return ResolverImpl.instance.resolvePropertyDeclaration(this)?.original?.overriddenDescriptors?.singleOrNull { it.overriddenDescriptors.isEmpty() }
-            ?.toKSPropertyDeclaration()
+        return ResolverImpl.instance!!.resolvePropertyDeclaration(this)?.original
+            ?.findClosestOverridee()?.toKSPropertyDeclaration()
     }
 
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {
@@ -86,5 +103,5 @@ class KSPropertyDeclarationParameterImpl private constructor(val ktParameter: Kt
     }
 
     override fun asMemberOf(containing: KSType): KSType =
-        ResolverImpl.instance.asMemberOf(this, containing)
+        ResolverImpl.instance!!.asMemberOf(this, containing)
 }

@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.symbol
 
 /**
@@ -23,7 +21,7 @@ package com.google.devtools.ksp.symbol
  */
 interface KSAnnotation : KSNode {
     /**
-     * Reference to type of the annotation class declaration.
+     * Reference to the type of the annotation class declaration.
      */
     val annotationType: KSTypeReference
 
@@ -33,6 +31,11 @@ interface KSAnnotation : KSNode {
      * @see [KSValueArgument] for operations on its values.
      */
     val arguments: List<KSValueArgument>
+
+    /**
+     * The default values of the annotation members
+     */
+    val defaultArguments: List<KSValueArgument>
 
     /**
      * Short name for this annotation, equivalent to the simple name of the declaration of the annotation class.

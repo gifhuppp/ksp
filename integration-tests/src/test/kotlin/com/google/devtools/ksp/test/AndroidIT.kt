@@ -5,18 +5,24 @@ import org.gradle.testkit.runner.TaskOutcome
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.Parameterized
 import java.io.File
 
-class AndroidIT {
+@RunWith(Parameterized::class)
+class AndroidIT(useKSP2: Boolean) {
     @Rule
     @JvmField
-    val project: TemporaryTestProject = TemporaryTestProject("playground-android", "playground")
+    val project: TemporaryTestProject = TemporaryTestProject("playground-android", "playground", useKSP2)
 
     @Test
     fun testPlaygroundAndroid() {
         val gradleRunner = GradleRunner.create().withProjectDir(project.root)
 
-        gradleRunner.withArguments("clean", "build", "minifyReleaseWithR8", "--info", "--stacktrace").build().let { result ->
+        // Disabling configuration cache. See https://github.com/google/ksp/issues/299 for details
+        gradleRunner.withArguments(
+            "clean", "build", "minifyReleaseWithR8", "--configuration-cache-problems=warn", "--info", "--stacktrace"
+        ).build().let { result ->
             Assert.assertEquals(TaskOutcome.SUCCESS, result.task(":workload:build")?.outcome)
             val mergedConfiguration = File(project.root, "workload/build/outputs/mapping/release/configuration.txt")
             assert(mergedConfiguration.exists()) {
@@ -26,7 +32,16 @@ class AndroidIT {
             assert("-keep class com.example.AClassBuilder { *; }" in configurationText) {
                 "Merged configuration did not contain generated proguard rules!\n$configurationText"
             }
+            val outputs = result.output.lines()
+            assert("w: [ksp] [workload_debug] Mangled name for internalFun: internalFun\$workload_debug" in outputs)
+            assert("w: [ksp] [workload_release] Mangled name for internalFun: internalFun\$workload_release" in outputs)
         }
+    }
+
+    companion object {
+        @JvmStatic
+        @Parameterized.Parameters(name = "KSP2={0}")
+        fun params() = listOf(arrayOf(true), arrayOf(false))
     }
 }
 
@@ -46,7 +61,8 @@ fun printDirectoryTree(folder: File): String? {
 }
 
 private fun printDirectoryTree(
-    folder: File, indent: Int,
+    folder: File,
+    indent: Int,
     sb: StringBuilder
 ) {
     require(folder.isDirectory) { "folder is not a Directory" }

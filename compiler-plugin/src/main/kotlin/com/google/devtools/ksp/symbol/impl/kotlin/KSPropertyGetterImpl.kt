@@ -15,23 +15,22 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
-import org.jetbrains.kotlin.descriptors.PropertyDescriptor
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.impl.binary.KSTypeReferenceDescriptorImpl
-import com.google.devtools.ksp.symbol.impl.toKSModifiers
-import com.google.devtools.ksp.symbol.impl.toLocation
-import org.jetbrains.kotlin.psi.KtProperty
+import org.jetbrains.kotlin.descriptors.PropertyDescriptor
 import org.jetbrains.kotlin.psi.KtPropertyAccessor
 
-class KSPropertyGetterImpl private constructor(ktPropertyGetter: KtPropertyAccessor) : KSPropertyAccessorImpl(ktPropertyGetter),
+class KSPropertyGetterImpl private constructor(ktPropertyGetter: KtPropertyAccessor) :
+    KSPropertyAccessorImpl(ktPropertyGetter),
     KSPropertyGetter {
     companion object : KSObjectCache<KtPropertyAccessor, KSPropertyGetterImpl>() {
-        fun getCached(ktPropertyGetter: KtPropertyAccessor) = cache.getOrPut(ktPropertyGetter) { KSPropertyGetterImpl(ktPropertyGetter) }
+        fun getCached(ktPropertyGetter: KtPropertyAccessor) = cache.getOrPut(ktPropertyGetter) {
+            KSPropertyGetterImpl(ktPropertyGetter)
+        }
     }
 
     override val returnType: KSTypeReference? by lazy {
@@ -39,8 +38,8 @@ class KSPropertyGetterImpl private constructor(ktPropertyGetter: KtPropertyAcces
         if (property.typeReference != null) {
             KSTypeReferenceImpl.getCached(property.typeReference!!)
         } else {
-            val desc = ResolverImpl.instance.resolveDeclaration(property) as PropertyDescriptor
-            KSTypeReferenceDescriptorImpl.getCached(desc.returnType!!, origin)
+            val desc = ResolverImpl.instance!!.resolveDeclaration(property) as PropertyDescriptor
+            KSTypeReferenceDescriptorImpl.getCached(desc.returnType!!, origin, this)
         }
     }
 

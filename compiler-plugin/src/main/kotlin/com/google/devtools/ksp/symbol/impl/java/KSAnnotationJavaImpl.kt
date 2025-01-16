@@ -15,16 +15,15 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
+import com.google.devtools.ksp.common.impl.KSNameImpl
 import com.google.devtools.ksp.getClassDeclarationByName
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.impl.binary.getAbsentDefaultArguments
-import com.google.devtools.ksp.symbol.impl.kotlin.KSErrorType
-import com.google.devtools.ksp.symbol.impl.kotlin.KSNameImpl
+import com.google.devtools.ksp.symbol.impl.binary.getDefaultConstructorArguments
 import com.google.devtools.ksp.symbol.impl.kotlin.KSTypeImpl
 import com.google.devtools.ksp.symbol.impl.toLocation
 import com.intellij.lang.jvm.JvmClassKind
@@ -42,20 +41,37 @@ class KSAnnotationJavaImpl private constructor(val psi: PsiAnnotation) : KSAnnot
         psi.toLocation()
     }
 
-    override val annotationType: KSTypeReference by lazy {
-        val psiClass = psi.nameReferenceElement!!.resolve() as? PsiClass ?: return@lazy KSTypeReferenceLiteJavaImpl.getCached(KSErrorType)
-        (psi.containingFile as? PsiJavaFile)?.let {
-            ResolverImpl.instance.incrementalContext.recordLookup(it, psiClass.qualifiedName!!)
+    override val parent: KSNode? by lazy {
+        var parentPsi = psi.parent
+        while (true) {
+            when (parentPsi) {
+                null, is PsiJavaFile, is PsiClass, is PsiMethod, is PsiParameter, is PsiTypeParameter, is PsiType ->
+                    break
+                else -> parentPsi = parentPsi.parent
+            }
         }
-        KSTypeReferenceLiteJavaImpl.getCached(
-            KSClassDeclarationJavaImpl.getCached(psiClass).asType(emptyList())
-        )
+        when (parentPsi) {
+            is PsiJavaFile -> KSFileJavaImpl.getCached(parentPsi)
+            is PsiClass -> KSClassDeclarationJavaImpl.getCached(parentPsi)
+            is PsiMethod -> KSFunctionDeclarationJavaImpl.getCached(parentPsi)
+            is PsiParameter -> KSValueParameterJavaImpl.getCached(parentPsi, this)
+            is PsiTypeParameter -> KSTypeParameterJavaImpl.getCached(parentPsi)
+            is PsiType ->
+                if (parentPsi.parent is PsiClassType) KSTypeArgumentJavaImpl.getCached(parentPsi, this)
+                else KSTypeReferenceJavaImpl.getCached(parentPsi, this)
+            else -> null
+        }
+    }
+
+    override val annotationType: KSTypeReference by lazy {
+        KSTypeReferenceLiteJavaImpl.getCached(psi, this)
     }
 
     override val arguments: List<KSValueArgument> by lazy {
-        val annotationConstructor =
-            ((annotationType.resolve() as? KSTypeImpl)?.kotlinType?.constructor?.declarationDescriptor as? ClassDescriptor)
-                ?.constructors?.single()
+        val annotationConstructor = (
+            (annotationType.resolve() as? KSTypeImpl)?.kotlinType?.constructor
+                ?.declarationDescriptor as? ClassDescriptor
+            )?.constructors?.single()
         val presentValueArguments = psi.parameterList.attributes
             .mapIndexed { index, it ->
                 // use the name in the attribute if it is explicitly specified, otherwise, fall back to index.
@@ -70,29 +86,38 @@ class KSAnnotationJavaImpl private constructor(val psi: PsiAnnotation) : KSAnnot
                 }
                 KSValueArgumentJavaImpl.getCached(
                     name = name?.let(KSNameImpl::getCached),
-                    value = calculatedValue
+                    value = calculatedValue,
+                    this
                 )
             }
         val presentValueArgumentNames = presentValueArguments.map { it.name?.asString() ?: "" }
         val argumentsFromDefault = annotationConstructor?.let {
-            it.getAbsentDefaultArguments(presentValueArgumentNames)
+            it.getAbsentDefaultArguments(presentValueArgumentNames, this)
         } ?: emptyList()
         presentValueArguments.plus(argumentsFromDefault)
+    }
+
+    override val defaultArguments: List<KSValueArgument> by lazy {
+        val kotlinType = (annotationType.resolve() as? KSTypeImpl)?.kotlinType
+        kotlinType?.getDefaultConstructorArguments(emptyList(), this) ?: emptyList()
     }
 
     private fun calcValue(value: PsiAnnotationMemberValue?): Any? {
         if (value is PsiAnnotation) {
             return getCached(value)
         }
-        val result = when(value) {
+        val result = when (value) {
             is PsiReference -> value.resolve()?.let { resolved ->
-                JavaPsiFacade.getInstance(value.project).constantEvaluationHelper.computeConstantExpression(value) ?: resolved
+                JavaPsiFacade.getInstance(value.project).constantEvaluationHelper.computeConstantExpression(value)
+                    ?: resolved
             }
-            else -> value?.let { JavaPsiFacade.getInstance(value.project).constantEvaluationHelper.computeConstantExpression(value) }
+            else -> value?.let {
+                JavaPsiFacade.getInstance(value.project).constantEvaluationHelper.computeConstantExpression(value)
+            }
         }
-        return when(result) {
+        return when (result) {
             is PsiType -> {
-                ResolverImpl.instance.getClassDeclarationByName(result.canonicalText)?.asStarProjectedType() ?: KSErrorType
+                ResolverImpl.instance!!.resolveJavaTypeInAnnotations(result)
             }
             is PsiLiteralValue -> {
                 result.value
@@ -103,9 +128,10 @@ class KSAnnotationJavaImpl private constructor(val psi: PsiAnnotation) : KSAnnot
                 if (containingClass?.classKind == JvmClassKind.ENUM) {
                     // this is an enum entry
                     containingClass.qualifiedName?.let {
-                        ResolverImpl.instance.getClassDeclarationByName(it)
+                        ResolverImpl.instance!!.getClassDeclarationByName(it)
                     }?.declarations?.find {
-                        it is KSClassDeclaration && it.classKind == ClassKind.ENUM_ENTRY && it.simpleName.asString() == result.name
+                        it is KSClassDeclaration && it.classKind == ClassKind.ENUM_ENTRY &&
+                            it.simpleName.asString() == result.name
                     }?.let { (it as KSClassDeclaration).asStarProjectedType() }
                         ?.let {
                             return it

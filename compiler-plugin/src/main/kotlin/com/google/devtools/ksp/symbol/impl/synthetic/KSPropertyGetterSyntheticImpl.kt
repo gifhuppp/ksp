@@ -15,36 +15,39 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.synthetic
 
-import org.jetbrains.kotlin.descriptors.PropertyAccessorDescriptor
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
-import com.google.devtools.ksp.symbol.KSPropertyDeclaration
-import com.google.devtools.ksp.symbol.KSPropertyGetter
-import com.google.devtools.ksp.symbol.KSTypeReference
-import com.google.devtools.ksp.symbol.KSVisitor
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
+import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.binary.KSTypeReferenceDescriptorImpl
+import org.jetbrains.kotlin.descriptors.PropertyAccessorDescriptor
 
 class KSPropertyGetterSyntheticImpl(val ksPropertyDeclaration: KSPropertyDeclaration) :
     KSPropertyAccessorSyntheticImpl(ksPropertyDeclaration), KSPropertyGetter {
     companion object : KSObjectCache<KSPropertyDeclaration, KSPropertyGetterSyntheticImpl>() {
         fun getCached(ksPropertyDeclaration: KSPropertyDeclaration) =
-            KSPropertyGetterSyntheticImpl.cache.getOrPut(ksPropertyDeclaration) { KSPropertyGetterSyntheticImpl(ksPropertyDeclaration) }
+            KSPropertyGetterSyntheticImpl.cache.getOrPut(ksPropertyDeclaration) {
+                KSPropertyGetterSyntheticImpl(ksPropertyDeclaration)
+            }
     }
 
     private val descriptor: PropertyAccessorDescriptor by lazy {
-        ResolverImpl.instance.resolvePropertyDeclaration(ksPropertyDeclaration)!!.getter!!
+        ResolverImpl.instance!!.resolvePropertyDeclaration(ksPropertyDeclaration)!!.getter!!
     }
 
     override val returnType: KSTypeReference? by lazy {
         if (descriptor.returnType != null) {
-            KSTypeReferenceDescriptorImpl.getCached(descriptor.returnType!!, origin)
+            KSTypeReferenceDescriptorImpl.getCached(descriptor.returnType!!, origin, this)
         } else {
             null
         }
     }
+
+    override val declarations: Sequence<KSDeclaration>
+        get() = emptySequence()
+
+    override val parent: KSNode? = ksPropertyDeclaration
 
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {
         return visitor.visitPropertyGetter(this, data)

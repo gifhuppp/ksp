@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.visitor
 
 import com.google.devtools.ksp.symbol.*
@@ -128,8 +126,13 @@ abstract class KSTopDownVisitor<D, R> : KSDefaultVisitor<D, R>() {
         return super.visitClassifierReference(reference, data)
     }
 
+    override fun visitDefNonNullReference(reference: KSDefNonNullReference, data: D): R {
+        reference.enclosedType.accept(data)
+        return super.visitDefNonNullReference(reference, data)
+    }
+
     override fun visitValueParameter(valueParameter: KSValueParameter, data: D): R {
-        valueParameter.type?.accept(data)
+        valueParameter.type.accept(data)
         return super.visitValueParameter(valueParameter, data)
     }
 }

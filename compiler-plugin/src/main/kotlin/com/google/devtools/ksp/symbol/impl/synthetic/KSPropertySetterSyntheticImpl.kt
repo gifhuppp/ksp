@@ -15,33 +15,36 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.synthetic
 
-import org.jetbrains.kotlin.descriptors.PropertyAccessorDescriptor
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
-import com.google.devtools.ksp.symbol.KSPropertyDeclaration
-import com.google.devtools.ksp.symbol.KSPropertySetter
-import com.google.devtools.ksp.symbol.KSValueParameter
-import com.google.devtools.ksp.symbol.KSVisitor
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
+import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.binary.KSValueParameterDescriptorImpl
+import org.jetbrains.kotlin.descriptors.PropertyAccessorDescriptor
 
 class KSPropertySetterSyntheticImpl(val ksPropertyDeclaration: KSPropertyDeclaration) :
     KSPropertyAccessorSyntheticImpl(ksPropertyDeclaration), KSPropertySetter {
     companion object : KSObjectCache<KSPropertyDeclaration, KSPropertySetterSyntheticImpl>() {
         fun getCached(ksPropertyDeclaration: KSPropertyDeclaration) =
-            KSPropertySetterSyntheticImpl.cache.getOrPut(ksPropertyDeclaration) { KSPropertySetterSyntheticImpl(ksPropertyDeclaration) }
+            KSPropertySetterSyntheticImpl.cache.getOrPut(ksPropertyDeclaration) {
+                KSPropertySetterSyntheticImpl(ksPropertyDeclaration)
+            }
     }
 
     private val descriptor: PropertyAccessorDescriptor by lazy {
-        ResolverImpl.instance.resolvePropertyDeclaration(ksPropertyDeclaration)!!.setter!!
+        ResolverImpl.instance!!.resolvePropertyDeclaration(ksPropertyDeclaration)!!.setter!!
     }
 
     override val parameter: KSValueParameter by lazy {
-        descriptor.valueParameters.singleOrNull()?.let { KSValueParameterDescriptorImpl.getCached(it) }
-                ?: throw IllegalStateException("Failed to resolve property type")
+        descriptor.valueParameters.singleOrNull()?.let { KSValueParameterDescriptorImpl.getCached(it, this) }
+            ?: throw IllegalStateException("Failed to resolve property type")
     }
+
+    override val declarations: Sequence<KSDeclaration>
+        get() = emptySequence()
+
+    override val parent: KSNode? = ksPropertyDeclaration
 
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {
         return visitor.visitPropertySetter(this, data)

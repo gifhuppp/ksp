@@ -1,15 +1,21 @@
+import com.google.devtools.ksp.configureMetalava
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 description = "Kotlin Symbol Processing API"
 
+val signingKey: String? by project
+val signingPassword: String? by project
+val kotlinBaseVersion: String by project
+
 tasks.withType<KotlinCompile> {
-    kotlinOptions.freeCompilerArgs += "-Xjvm-default=compatibility"
+    compilerOptions.freeCompilerArgs.add("-Xjvm-default=all-compatibility")
 }
 
 plugins {
     kotlin("jvm")
     `maven-publish`
-    id("org.jetbrains.dokka") version ("1.4.32")
+    signing
+    id("org.jetbrains.dokka")
 }
 
 tasks {
@@ -39,3 +45,11 @@ publishing {
         }
     }
 }
+
+signing {
+    isRequired = hasProperty("signingKey")
+    useInMemoryPgpKeys(signingKey, signingPassword)
+    sign(extensions.getByType<PublishingExtension>().publications)
+}
+
+configureMetalava()

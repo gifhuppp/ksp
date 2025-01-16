@@ -14,8 +14,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-
 package com.google.devtools.ksp.symbol
 
 /**
@@ -69,4 +67,6 @@ interface KSVisitor<D, R> {
     fun visitValueArgument(valueArgument: KSValueArgument, data: D): R
 
     fun visitClassifierReference(reference: KSClassifierReference, data: D): R
+
+    fun visitDefNonNullReference(reference: KSDefNonNullReference, data: D): R
 }

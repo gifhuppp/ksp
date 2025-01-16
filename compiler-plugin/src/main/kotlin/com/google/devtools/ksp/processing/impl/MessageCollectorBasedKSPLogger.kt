@@ -15,19 +15,22 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.processing.impl
 
-import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
-import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import com.google.devtools.ksp.processing.KSPLogger
 import com.google.devtools.ksp.symbol.FileLocation
 import com.google.devtools.ksp.symbol.KSNode
 import com.google.devtools.ksp.symbol.NonExistLocation
+import org.jetbrains.kotlin.cli.common.messages.CompilerMessageSeverity
+import org.jetbrains.kotlin.cli.common.messages.MessageCollector
 import java.io.PrintWriter
 import java.io.StringWriter
 
-class MessageCollectorBasedKSPLogger(private val messageCollector: MessageCollector) : KSPLogger {
+class MessageCollectorBasedKSPLogger(
+    private val messageCollector: MessageCollector,
+    private val wrappedMessageCollector: MessageCollector,
+    private val allWarningsAsErrors: Boolean
+) : KSPLogger {
 
     companion object {
         const val PREFIX = "[ksp] "
@@ -36,6 +39,10 @@ class MessageCollectorBasedKSPLogger(private val messageCollector: MessageCollec
     data class Event(val severity: CompilerMessageSeverity, val message: String)
 
     val recordedEvents = mutableListOf<Event>()
+
+    private val reportToCompilerSeverity = setOf(CompilerMessageSeverity.ERROR, CompilerMessageSeverity.EXCEPTION)
+
+    private var reportedToCompiler = false
 
     private fun convertMessage(message: String, symbol: KSNode?): String =
         when (val location = symbol?.location) {
@@ -52,7 +59,8 @@ class MessageCollectorBasedKSPLogger(private val messageCollector: MessageCollec
     }
 
     override fun warn(message: String, symbol: KSNode?) {
-        recordedEvents.add(Event(CompilerMessageSeverity.WARNING, convertMessage(message, symbol)))
+        val severity = if (allWarningsAsErrors) CompilerMessageSeverity.ERROR else CompilerMessageSeverity.WARNING
+        recordedEvents.add(Event(severity, convertMessage(message, symbol)))
     }
 
     override fun error(message: String, symbol: KSNode?) {
@@ -67,6 +75,10 @@ class MessageCollectorBasedKSPLogger(private val messageCollector: MessageCollec
 
     fun reportAll() {
         for (event in recordedEvents) {
+            if (!reportedToCompiler && event.severity in reportToCompilerSeverity) {
+                reportedToCompiler = true
+                wrappedMessageCollector.report(event.severity, "Error occurred in KSP, check log for detail")
+            }
             messageCollector.report(event.severity, event.message)
         }
     }

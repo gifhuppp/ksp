@@ -1,20 +1,28 @@
+import com.google.devtools.ksp.KspExperimental
+import com.google.devtools.ksp.containingFile
+import com.google.devtools.ksp.getClassDeclarationByName
 import com.google.devtools.ksp.processing.*
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.validate
-import java.io.File
 import java.io.OutputStream
-
 
 class TestProcessor : SymbolProcessor {
     lateinit var codeGenerator: CodeGenerator
     lateinit var file: OutputStream
+    lateinit var logger: KSPLogger
     var invoked = false
 
     fun emit(s: String, indent: String) {
         file.appendText("$indent$s\n")
     }
 
-    fun init(options: Map<String, String>, kotlinVersion: KotlinVersion, codeGenerator: CodeGenerator, logger: KSPLogger) {
+    fun init(
+        options: Map<String, String>,
+        kotlinVersion: KotlinVersion,
+        codeGenerator: CodeGenerator,
+        logger: KSPLogger
+    ) {
+        this.logger = logger
+        logger.warn("This is a harmless warning.")
         this.codeGenerator = codeGenerator
         file = codeGenerator.createNewFile(Dependencies(false), "", "TestProcessor", "log")
         emit("TestProcessor: init($options)", "")
@@ -23,7 +31,9 @@ class TestProcessor : SymbolProcessor {
         javaFile.appendText("class Generated {}")
     }
 
+    @OptIn(KspExperimental::class)
     override fun process(resolver: Resolver): List<KSAnnotated> {
+        logger.warn("Module name is ${resolver.getModuleName().asString()}")
         if (invoked) {
             return emptyList()
         }
@@ -39,6 +49,14 @@ class TestProcessor : SymbolProcessor {
         for (file in files) {
             emit("TestProcessor: processing ${file.fileName}", "")
             file.accept(visitor, "")
+        }
+
+        resolver.getClassDeclarationByName("com.example.AClass")?.let { aClass ->
+            aClass.declarations.single { it.simpleName.asString() == "internalFun" }.let { internalFun ->
+                val internalName = resolver.getJvmName(internalFun as KSFunctionDeclaration)
+                val moduleName = resolver.getModuleName().asString()
+                logger.warn("[$moduleName] Mangled name for internalFun: $internalName")
+            }
         }
         invoked = true
         return emptyList()
@@ -64,6 +82,11 @@ class TestProcessor : SymbolProcessor {
         override fun visitDynamicReference(reference: KSDynamicReference, data: String) {
             TODO("Not yet implemented")
         }
+
+        override fun visitDefNonNullReference(reference: KSDefNonNullReference, data: String) {
+            TODO("Not yet implemented")
+        }
+
         val visited = HashSet<Any>()
 
         private fun checkVisited(symbol: Any): Boolean {
@@ -77,7 +100,7 @@ class TestProcessor : SymbolProcessor {
 
         private fun invokeCommonDeclarationApis(declaration: KSDeclaration, indent: String) {
             emit(
-              "${declaration.modifiers.joinToString(" ")} ${declaration.simpleName.asString()}", indent
+                "${declaration.modifiers.joinToString(" ")} ${declaration.simpleName.asString()}", indent
             )
             declaration.annotations.map { it.accept(this, "$indent  ") }
             if (declaration.parentDeclaration != null)
@@ -133,12 +156,13 @@ class TestProcessor : SymbolProcessor {
             if (checkVisited(typeArgument)) return
             typeArgument.annotations.forEach { it.accept(this, "$data  ") }
             emit(
-              when (typeArgument.variance) {
-                  Variance.STAR -> "*"
-                  Variance.COVARIANT -> "out"
-                  Variance.CONTRAVARIANT -> "in"
-                  else -> ""
-              }, data
+                when (typeArgument.variance) {
+                    Variance.STAR -> "*"
+                    Variance.COVARIANT -> "out"
+                    Variance.CONTRAVARIANT -> "in"
+                    else -> ""
+                },
+                data
             )
             typeArgument.type?.accept(this, "$data  ")
         }
@@ -150,11 +174,12 @@ class TestProcessor : SymbolProcessor {
                 emit("reified ", data)
             }
             emit(
-              when (typeParameter.variance) {
-                  Variance.COVARIANT -> "out "
-                  Variance.CONTRAVARIANT -> "in "
-                  else -> ""
-              } + typeParameter.name.asString(), data
+                when (typeParameter.variance) {
+                    Variance.COVARIANT -> "out "
+                    Variance.CONTRAVARIANT -> "in "
+                    else -> ""
+                } + typeParameter.name.asString(),
+                data
             )
             if (typeParameter.bounds.toList().isNotEmpty()) {
                 typeParameter.bounds.forEach { it.accept(this, "$data  ") }
@@ -217,7 +242,7 @@ class TestProcessor : SymbolProcessor {
             type.let {
                 emit("resolved to: ${it.declaration.qualifiedName?.asString()}", data)
             }
-            //resolved.accept(this, "$data  ")
+            // resolved.accept(this, "$data  ")
             // TODO: KSTypeReferenceJavaImpl hasn't completed yet.
             try {
                 typeReference.element?.accept(this, "$data  ")
@@ -255,7 +280,6 @@ class TestProcessor : SymbolProcessor {
             valueArgument.annotations.forEach { it.accept(this, "$data  ") }
         }
     }
-
 }
 
 class TestProcessorProvider2 : SymbolProcessorProvider {
@@ -264,6 +288,15 @@ class TestProcessorProvider2 : SymbolProcessorProvider {
     ): SymbolProcessor {
         return TestProcessor().apply {
             init(env.options, env.kotlinVersion, env.codeGenerator, env.logger)
+
+            env.logger.warn("language version: ${env.kotlinVersion}")
+            env.logger.warn("api version: ${env.apiVersion}")
+            env.logger.warn("compiler version: ${env.compilerVersion}")
+            env.logger.warn("ksp version: ${env.kspVersion}")
+            env.platforms.filterIsInstance<JvmPlatformInfo>().single().let {
+                env.logger.warn("platform: $it")
+                env.logger.warn("jvm default mode: ${it.jvmDefaultMode}")
+            }
         }
     }
 }

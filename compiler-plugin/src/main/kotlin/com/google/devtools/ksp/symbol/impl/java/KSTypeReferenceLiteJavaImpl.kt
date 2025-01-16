@@ -15,22 +15,63 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
-import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
+import com.google.devtools.ksp.ExceptionMessage
+import com.google.devtools.ksp.processing.impl.KSObjectCache
+import com.google.devtools.ksp.processing.impl.ResolverImpl
+import com.google.devtools.ksp.symbol.KSAnnotation
+import com.google.devtools.ksp.symbol.KSNode
+import com.google.devtools.ksp.symbol.KSReferenceElement
+import com.google.devtools.ksp.symbol.KSType
+import com.google.devtools.ksp.symbol.KSTypeReference
+import com.google.devtools.ksp.symbol.KSVisitor
+import com.google.devtools.ksp.symbol.Location
+import com.google.devtools.ksp.symbol.Modifier
+import com.google.devtools.ksp.symbol.NonExistLocation
+import com.google.devtools.ksp.symbol.Origin
+import com.google.devtools.ksp.symbol.impl.kotlin.KSErrorType
+import com.intellij.psi.PsiAnnotation
+import com.intellij.psi.PsiClass
+import com.intellij.psi.PsiElement
+import com.intellij.psi.PsiJavaFile
+import com.intellij.psi.PsiMethod
 
-class KSTypeReferenceLiteJavaImpl private constructor(val type: KSType) : KSTypeReference {
-    companion object : KSObjectCache<KSType, KSTypeReferenceLiteJavaImpl>() {
-        fun getCached(type: KSType) = cache.getOrPut(type) { KSTypeReferenceLiteJavaImpl(type) }
+class KSTypeReferenceLiteJavaImpl private constructor(val psiElement: PsiElement, override val parent: KSNode) :
+    KSTypeReference {
+    companion object : KSObjectCache<KSNode, KSTypeReferenceLiteJavaImpl>() {
+        fun getCached(psiElement: PsiElement, parent: KSNode) = cache
+            .getOrPut(parent) { KSTypeReferenceLiteJavaImpl(psiElement, parent) }
+    }
+
+    val type: KSType by lazy {
+        when (psiElement) {
+            is PsiAnnotation -> {
+                val nameReferenceElement = psiElement.nameReferenceElement!!
+                val psiClass = nameReferenceElement.resolve() as? PsiClass
+                psiClass?.let {
+                    (psiElement.containingFile as? PsiJavaFile)?.let {
+                        ResolverImpl.instance!!.incrementalContext.recordLookup(it, psiClass.qualifiedName!!)
+                    }
+                    KSClassDeclarationJavaImpl.getCached(psiClass).asStarProjectedType()
+                } ?: KSErrorType(nameReferenceElement.text)
+            }
+            is PsiMethod -> {
+                KSClassDeclarationJavaImpl.getCached(psiElement.containingClass!!).asStarProjectedType()
+            }
+            else -> throw IllegalStateException(
+                "Unexpected psi type in KSTypeReferenceLiteJavaImpl: ${psiElement.javaClass}, $ExceptionMessage"
+            )
+        }
     }
 
     override val origin = Origin.JAVA
 
     override val location: Location = NonExistLocation
 
-    override val element: KSReferenceElement? = null
+    override val element: KSReferenceElement by lazy {
+        KSClassifierReferenceLiteImplForJava.getCached(this)
+    }
 
     override val annotations: Sequence<KSAnnotation> = emptySequence()
 

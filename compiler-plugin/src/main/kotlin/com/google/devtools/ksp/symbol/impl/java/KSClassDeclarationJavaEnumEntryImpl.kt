@@ -15,28 +15,27 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
+import com.google.devtools.ksp.common.errorTypeOnInconsistentArguments
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.toKSModifiers
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.*
 import com.google.devtools.ksp.symbol.impl.binary.getAllFunctions
 import com.google.devtools.ksp.symbol.impl.binary.getAllProperties
+import com.google.devtools.ksp.symbol.impl.kotlin.KSErrorType
 import com.google.devtools.ksp.symbol.impl.kotlin.KSExpectActualNoImpl
-import com.google.devtools.ksp.symbol.impl.kotlin.KSNameImpl
 import com.google.devtools.ksp.symbol.impl.kotlin.getKSTypeCached
 import com.intellij.psi.PsiEnumConstant
 import com.intellij.psi.PsiJavaFile
 import org.jetbrains.kotlin.descriptors.ClassDescriptor
-import org.jetbrains.kotlin.descriptors.DescriptorVisibilities
-import org.jetbrains.kotlin.descriptors.FunctionDescriptor
-import org.jetbrains.kotlin.descriptors.PropertyDescriptor
-import org.jetbrains.kotlin.resolve.scopes.DescriptorKindFilter
-import org.jetbrains.kotlin.resolve.scopes.getDescriptorsFiltered
-import org.jetbrains.kotlin.types.typeUtil.replaceArgumentsWithStarProjections
 
-class KSClassDeclarationJavaEnumEntryImpl private constructor(val psi: PsiEnumConstant) : KSClassDeclaration, KSDeclarationJavaImpl(psi),
+class KSClassDeclarationJavaEnumEntryImpl private constructor(val psi: PsiEnumConstant) :
+    KSClassDeclaration,
+    KSDeclarationJavaImpl(psi),
     KSExpectActual by KSExpectActualNoImpl() {
     companion object : KSObjectCache<PsiEnumConstant, KSClassDeclarationJavaEnumEntryImpl>() {
         fun getCached(psi: PsiEnumConstant) = cache.getOrPut(psi) { KSClassDeclarationJavaEnumEntryImpl(psi) }
@@ -63,14 +62,14 @@ class KSClassDeclarationJavaEnumEntryImpl private constructor(val psi: PsiEnumCo
     override fun getSealedSubclasses(): Sequence<KSClassDeclaration> = emptySequence()
 
     private val descriptor: ClassDescriptor? by lazy {
-        ResolverImpl.instance.resolveJavaDeclaration(psi) as ClassDescriptor
+        ResolverImpl.instance!!.resolveJavaDeclaration(psi) as ClassDescriptor
     }
 
     override fun getAllFunctions(): Sequence<KSFunctionDeclaration> =
-            descriptor?.getAllFunctions() ?: emptySequence()
+        descriptor?.getAllFunctions() ?: emptySequence()
 
     override fun getAllProperties(): Sequence<KSPropertyDeclaration> =
-            descriptor?.getAllProperties() ?: emptySequence()
+        descriptor?.getAllProperties() ?: emptySequence()
 
     override val declarations: Sequence<KSDeclaration> = emptySequence()
 
@@ -96,12 +95,17 @@ class KSClassDeclarationJavaEnumEntryImpl private constructor(val psi: PsiEnumCo
 
     override val typeParameters: List<KSTypeParameter> = emptyList()
 
+    // Enum can't have type parameters.
     override fun asType(typeArguments: List<KSTypeArgument>): KSType {
-        return getKSTypeCached(descriptor!!.defaultType.replaceTypeArguments(typeArguments), typeArguments)
+        errorTypeOnInconsistentArguments(
+            arguments = typeArguments, placeholdersProvider = ::emptyList,
+            withCorrectedArguments = ::asType, errorType = ::KSErrorType,
+        )?.let { error -> return error }
+        return asStarProjectedType()
     }
 
     override fun asStarProjectedType(): KSType {
-        return getKSTypeCached(descriptor!!.defaultType.replaceArgumentsWithStarProjections())
+        return getKSTypeCached(descriptor!!.defaultType)
     }
 
     override fun <D, R> accept(visitor: KSVisitor<D, R>, data: D): R {

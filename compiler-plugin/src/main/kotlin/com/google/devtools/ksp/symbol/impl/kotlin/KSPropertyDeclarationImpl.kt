@@ -15,9 +15,9 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
 import com.google.devtools.ksp.symbol.impl.*
@@ -26,21 +26,23 @@ import com.google.devtools.ksp.symbol.impl.binary.KSPropertySetterDescriptorImpl
 import org.jetbrains.kotlin.descriptors.PropertyDescriptor
 import org.jetbrains.kotlin.descriptors.VariableDescriptorWithAccessors
 import org.jetbrains.kotlin.descriptors.annotations.AnnotationUseSiteTarget
+import org.jetbrains.kotlin.lexer.KtTokens
 import org.jetbrains.kotlin.psi.KtAnnotated
 import org.jetbrains.kotlin.psi.KtAnnotationEntry
 import org.jetbrains.kotlin.psi.KtProperty
 import org.jetbrains.kotlin.psi.psiUtil.isExtensionDeclaration
 import org.jetbrains.kotlin.resolve.BindingContext
-import org.jetbrains.kotlin.resolve.hasBackingField
 
-class KSPropertyDeclarationImpl private constructor(val ktProperty: KtProperty) : KSPropertyDeclaration, KSDeclarationImpl(ktProperty),
+class KSPropertyDeclarationImpl private constructor(val ktProperty: KtProperty) :
+    KSPropertyDeclaration,
+    KSDeclarationImpl(ktProperty),
     KSExpectActual by KSExpectActualImpl(ktProperty) {
     companion object : KSObjectCache<KtProperty, KSPropertyDeclarationImpl>() {
         fun getCached(ktProperty: KtProperty) = cache.getOrPut(ktProperty) { KSPropertyDeclarationImpl(ktProperty) }
     }
 
     private val propertyDescriptor by lazy {
-        ResolverImpl.instance.resolveDeclaration(ktProperty) as? PropertyDescriptor
+        ResolverImpl.instance!!.resolveDeclaration(ktProperty) as? PropertyDescriptor
     }
 
     override val annotations: Sequence<KSAnnotation> by lazy {
@@ -59,8 +61,18 @@ class KSPropertyDeclarationImpl private constructor(val ktProperty: KtProperty) 
         ktProperty.isVar
     }
 
-    override val hasBackingField: Boolean
-        get() = ktProperty.initializer != null
+    override val hasBackingField: Boolean by lazy {
+        // taken from: https://github.com/JetBrains/kotlin/blob/master/compiler/light-classes/src/org/jetbrains/kotlin/asJava/classes/ultraLightMembersCreator.kt#L104
+        when {
+            ktProperty.initializer != null -> true
+            ktProperty.hasModifier(KtTokens.LATEINIT_KEYWORD) -> true
+            else -> {
+                val context = ResolverImpl.instance!!.bindingTrace.bindingContext
+                val descriptor = ResolverImpl.instance!!.resolveDeclaration(ktProperty)
+                descriptor is PropertyDescriptor && context[BindingContext.BACKING_FIELD_REQUIRED, descriptor] == true
+            }
+        }
+    }
 
     override val getter: KSPropertyGetter? by lazy {
         ktProperty.getter?.let {
@@ -68,7 +80,6 @@ class KSPropertyDeclarationImpl private constructor(val ktProperty: KtProperty) 
         } ?: propertyDescriptor?.getter?.let {
             KSPropertyGetterDescriptorImpl.getCached(it)
         }
-
     }
 
     override val setter: KSPropertySetter? by lazy {
@@ -77,17 +88,16 @@ class KSPropertyDeclarationImpl private constructor(val ktProperty: KtProperty) 
         } ?: propertyDescriptor?.setter?.let {
             KSPropertySetterDescriptorImpl.getCached(it)
         }
-
     }
 
     override val type: KSTypeReference by lazy {
         if (ktProperty.typeReference != null) {
             KSTypeReferenceImpl.getCached(ktProperty.typeReference!!)
         } else {
-            KSTypeReferenceDeferredImpl.getCached {
+            KSTypeReferenceDeferredImpl.getCached(this) {
                 val desc = propertyDescriptor as? VariableDescriptorWithAccessors
                 if (desc == null) {
-                    KSErrorType
+                    KSErrorType(null /* no info available */)
                 } else {
                     getKSTypeCached(desc.type)
                 }
@@ -106,14 +116,14 @@ class KSPropertyDeclarationImpl private constructor(val ktProperty: KtProperty) 
     }
 
     override fun asMemberOf(containing: KSType): KSType =
-        ResolverImpl.instance.asMemberOf(this, containing)
+        ResolverImpl.instance!!.asMemberOf(this, containing)
 }
 
 internal fun KtAnnotated.filterUseSiteTargetAnnotations(): Sequence<KtAnnotationEntry> {
     return this.annotationEntries.asSequence().filter { property ->
         property.useSiteTarget?.getAnnotationUseSiteTarget()?.let {
-            it != AnnotationUseSiteTarget.PROPERTY_GETTER && it != AnnotationUseSiteTarget.PROPERTY_SETTER
-                && it != AnnotationUseSiteTarget.SETTER_PARAMETER
+            it != AnnotationUseSiteTarget.PROPERTY_GETTER && it != AnnotationUseSiteTarget.PROPERTY_SETTER &&
+                it != AnnotationUseSiteTarget.SETTER_PARAMETER && it != AnnotationUseSiteTarget.CONSTRUCTOR_PARAMETER
         } ?: true
     }
 }

@@ -15,19 +15,24 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.synthetic
 
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.impl.KSTypeReferenceSyntheticImpl
 import com.google.devtools.ksp.isPublic
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.processing.impl.ResolverImpl
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
-import com.google.devtools.ksp.symbol.impl.kotlin.KSNameImpl
 
-class KSConstructorSyntheticImpl(val ksClassDeclaration: KSClassDeclaration) : KSFunctionDeclaration, KSDeclaration by ksClassDeclaration {
+class KSConstructorSyntheticImpl private constructor(val ksClassDeclaration: KSClassDeclaration) :
+    KSFunctionDeclaration,
+    KSDeclaration
+    by ksClassDeclaration {
     companion object : KSObjectCache<KSClassDeclaration, KSConstructorSyntheticImpl>() {
         fun getCached(ksClassDeclaration: KSClassDeclaration) =
-            KSConstructorSyntheticImpl.cache.getOrPut(ksClassDeclaration) { KSConstructorSyntheticImpl(ksClassDeclaration) }
+            KSConstructorSyntheticImpl.cache.getOrPut(ksClassDeclaration) {
+                KSConstructorSyntheticImpl(ksClassDeclaration)
+            }
     }
 
     override val isAbstract: Boolean = false
@@ -56,9 +61,13 @@ class KSConstructorSyntheticImpl(val ksClassDeclaration: KSClassDeclaration) : K
         ksClassDeclaration
     }
 
+    override val parent: KSNode? by lazy {
+        parentDeclaration
+    }
+
     override val returnType: KSTypeReference by lazy {
         KSTypeReferenceSyntheticImpl(
-            ksClassDeclaration.asStarProjectedType()
+            ksClassDeclaration.asStarProjectedType(), this
         )
     }
 
@@ -75,6 +84,9 @@ class KSConstructorSyntheticImpl(val ksClassDeclaration: KSClassDeclaration) : K
     }
 
     override val modifiers: Set<Modifier> by lazy {
+        if (ksClassDeclaration.classKind == ClassKind.ENUM_CLASS) {
+            return@lazy setOf(Modifier.FINAL, Modifier.PRIVATE)
+        }
         // add public if parent class is public
         if (ksClassDeclaration.isPublic()) {
             setOf(Modifier.FINAL, Modifier.PUBLIC)
@@ -104,5 +116,5 @@ class KSConstructorSyntheticImpl(val ksClassDeclaration: KSClassDeclaration) : K
     }
 
     override fun asMemberOf(containing: KSType): KSFunction =
-        ResolverImpl.instance.asMemberOf(this, containing)
+        ResolverImpl.instance!!.asMemberOf(this, containing)
 }

@@ -15,21 +15,23 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.processing.impl.KSObjectCache
+import com.google.devtools.ksp.symbol.*
+import com.google.devtools.ksp.symbol.impl.kotlin.KSTypeArgumentImpl
+import com.google.devtools.ksp.symbol.impl.toLocation
 import com.intellij.psi.PsiType
 import com.intellij.psi.PsiWildcardType
 import com.intellij.psi.impl.source.PsiClassReferenceType
-import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
-import com.google.devtools.ksp.symbol.impl.kotlin.KSTypeArgumentImpl
-import com.google.devtools.ksp.symbol.impl.memoized
-import com.google.devtools.ksp.symbol.impl.toLocation
 
-class KSTypeArgumentJavaImpl private constructor(val psi: PsiType) : KSTypeArgumentImpl() {
+class KSTypeArgumentJavaImpl private constructor(
+    val psi: PsiType,
+    override val parent: KSNode?
+) : KSTypeArgumentImpl() {
     companion object : KSObjectCache<PsiType, KSTypeArgumentJavaImpl>() {
-        fun getCached(psi: PsiType) = cache.getOrPut(psi) { KSTypeArgumentJavaImpl(psi) }
+        fun getCached(psi: PsiType, parent: KSNode?) = cache.getOrPut(psi) { KSTypeArgumentJavaImpl(psi, parent) }
     }
 
     override val origin = Origin.JAVA
@@ -44,7 +46,7 @@ class KSTypeArgumentJavaImpl private constructor(val psi: PsiType) : KSTypeArgum
 
     // Could be unbounded, need to model unbdouned type argument.
     override val type: KSTypeReference? by lazy {
-        KSTypeReferenceJavaImpl.getCached(psi)
+        KSTypeReferenceJavaImpl.getCached(psi, this)
     }
 
     override val variance: Variance by lazy {

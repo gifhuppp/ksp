@@ -15,15 +15,14 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.java
 
-import com.intellij.psi.PsiJavaFile
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
-import com.google.devtools.ksp.symbol.impl.kotlin.KSNameImpl
-import com.google.devtools.ksp.symbol.impl.memoized
 import com.google.devtools.ksp.symbol.impl.toLocation
+import com.intellij.psi.PsiJavaFile
 
 class KSFileJavaImpl private constructor(val psi: PsiJavaFile) : KSFile {
     companion object : KSObjectCache<PsiJavaFile, KSFileJavaImpl>() {
@@ -35,6 +34,7 @@ class KSFileJavaImpl private constructor(val psi: PsiJavaFile) : KSFile {
     override val location: Location by lazy {
         psi.toLocation()
     }
+    override val parent: KSNode? = null
 
     override val annotations: Sequence<KSAnnotation> = emptySequence()
 

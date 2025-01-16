@@ -1,3 +1,5 @@
+import org.jetbrains.kotlin.gradle.tasks.AbstractKotlinCompileTool
+
 val testRepo: String by project
 
 plugins {
@@ -11,7 +13,6 @@ repositories {
     maven(testRepo)
     mavenCentral()
     maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
-    google()
 }
 
 dependencies {
@@ -23,4 +24,13 @@ dependencies {
 ksp {
     arg("option1", "value1")
     arg("option2", "value2")
+}
+
+val compileKotlin: AbstractKotlinCompileTool<*> by tasks
+tasks.register<Copy>("copyG") {
+    from("G.kt")
+    into(layout.buildDirectory.file("generatedSources"))
+}.let {
+    // Magic. `map` creates a provider to propagate task dependency.
+    compileKotlin.setSource(it.map { it.destinationDir })
 }

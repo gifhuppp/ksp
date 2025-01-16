@@ -11,13 +11,11 @@ repositories {
     maven(testRepo)
     mavenCentral()
     maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
-    google()
 }
 
 dependencies {
     implementation(kotlin("stdlib"))
-    implementation(project(":validator"))
     testImplementation("junit:junit:4.12")
     ksp(project(":validator"))
+    kspTest(project(":validator"))
 }
-

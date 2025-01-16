@@ -11,7 +11,6 @@ repositories {
     maven(testRepo)
     mavenCentral()
     maven("https://maven.pkg.jetbrains.space/kotlin/p/kotlin/bootstrap/")
-    google()
 }
 
 dependencies {
@@ -19,3 +18,6 @@ dependencies {
     ksp(project(":on-error-processor"))
 }
 
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions.freeCompilerArgs.add("-opt-in=MyOptIn")
+}

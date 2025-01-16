@@ -28,16 +28,21 @@ information on using pull requests.
 This project follows
 [Google's Open Source Community Guidelines](https://opensource.google/conduct/).
 
+## API verification
+
+For changes that involves API changes(new API, API signature change), please also update [api.base](./api/api.base) file. You can monitor api change with `./gradlew :api:apiCheck`, and`./gradlew :api:updateApi` to generate new api signature.
+
 ## Testing
 For incoming PRs, we would like to request changes covered by tests for good practice.
- We do end to end test for KSP, which means you need to write a lightweight processor to be loaded with KSP for testing.
+We do end-to-end test for KSP, which means you need to write a lightweight processor to be loaded with KSP for testing.
 The form of the test itself is flexible as long as the logic is being covered. 
 
 Here are some [sample test processors](compiler-plugin/src/test/kotlin/com/google/devtools/ksp/processor) for your reference.
 
 #### Steps for writing a test
+* KSP needs to be built with JDK 11+, because of some test dependencies.
 * Create a test processor under the sample processor folder.
-it should be extending [AbstractTestProcessor](compiler-plugin/src/test/kotlin/com/google/devtools/ksp/processor/AbstractTestProcessor.kt)
+it should be extending [AbstractTestProcessor](test-utils/src/main/kotlin/com/google/devtools/ksp/processor/AbstractTestProcessor.kt)
 * Write your logic by overriding corresponding functions. 
     * Test is performed by running test processor and get a collection of test results in the form of List<String>.
     * Make sure you override toResult() function to collect test result. 
@@ -45,8 +50,8 @@ it should be extending [AbstractTestProcessor](compiler-plugin/src/test/kotlin/c
     * To help with easy testing, you can create an annotation for test, and annotate the specific part of the code to avoid doing 
     excess filtering when traveling along the program.
 * Write your test case to work with test processor.
-    * Create a test kt file under [testData](compiler-plugin/testData/api) folder. 
-    Every kt file under this folder corrsponds to a test case.
+    * Create a test kt file under [testData](test-utils/testData/api) folder. 
+    Every kt file under this folder corresponds to a test case.
     * Inside the test file:
         * [optional] Add ```// WITH_RUNTIME``` to the top if you need access to standard library.
         * Add ```// TEST PROCESSOR:<Your test processor name>``` to provide the test processor for this test case. Processors can 
@@ -57,9 +62,8 @@ it should be extending [AbstractTestProcessor](compiler-plugin/src/test/kotlin/c
         * Then follows virtual files section till the end of test file.
         * You can use ```// FILE: <file name>``` to create files that will be available at run time of the test.
             * E.g. ```// FILE: a.kt``` will result in a file named ```a.kt``` at run time.
-* Add new test to [test suite](compiler-plugin/src/test/java/com/google/devtools/ksp/test/KotlinKSPTestGenerated.java)
-* Run generated tests with ```:compiler-plugin:test``` gradle task.
-    * Make sure you run test with `-PcompilerTestEnabled` as Gradle argument. Alternatively, you can also set `compilerTestEnabled=false` in `gradle.properties` in project root.
+* Add new test to [test suite](test-utils/src/test/kotlin/com/google/devtools/ksp/test/KSPCompilerPluginTest.kt)
+* Run generated tests with ```:test-util:test``` gradle task.
     * This will execute all tests in KSP test suite. To run your test only, specify the test name with 
-    ```--tests "com.google.devtools.ksp.test.KotlinKSPTestGenerated.<name of your generated test>"```
+    ```--tests "com.google.devtools.ksp.test.KSPCompilerPluginTest.<name of your generated test>"```
     * Make sure your change is not breaking any existing test as well :).

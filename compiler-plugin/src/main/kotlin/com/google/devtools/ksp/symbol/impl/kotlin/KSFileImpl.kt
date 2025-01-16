@@ -15,13 +15,13 @@
  * limitations under the License.
  */
 
-
 package com.google.devtools.ksp.symbol.impl.kotlin
 
+import com.google.devtools.ksp.common.impl.KSNameImpl
+import com.google.devtools.ksp.common.memoized
+import com.google.devtools.ksp.processing.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.*
-import com.google.devtools.ksp.symbol.impl.KSObjectCache
 import com.google.devtools.ksp.symbol.impl.getKSDeclarations
-import com.google.devtools.ksp.symbol.impl.memoized
 import com.google.devtools.ksp.symbol.impl.toLocation
 import org.jetbrains.kotlin.psi.KtFile
 
@@ -35,6 +35,8 @@ class KSFileImpl private constructor(val file: KtFile) : KSFile {
     override val location: Location by lazy {
         file.toLocation()
     }
+
+    override val parent: KSNode? = null
 
     override val packageName: KSName by lazy {
         KSNameImpl.getCached(file.packageFqName.asString())
